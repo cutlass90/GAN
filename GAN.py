@@ -88,8 +88,12 @@ class GAN(object):
     def generator(self, data_dim, z):
         print('\tgenerator')
         with tf.variable_scope('generator'):
-            fc = tf.layers.dense(inputs=z, units=data_dim, activation=tf.nn.elu,
+            fc = tf.layers.dense(inputs=z, units=data_dim, activation=None,
                 kernel_initializer=tf.contrib.layers.xavier_initializer())
+            fc = tf.contrib.layers.batch_norm(inputs=fc, scale=True,
+                updates_collections=None, is_training=self.do_train,
+                trainable=self.do_train)
+            fc = tf.nn.elu(fc)
             fc = tf.layers.dense(inputs=fc, units=data_dim, activation=tf.sigmoid,
                 kernel_initializer=tf.contrib.layers.xavier_initializer())
 
@@ -102,8 +106,12 @@ class GAN(object):
     def discriminator(self, x):
         print('\tdiscriminator')
         with tf.variable_scope('discriminator'):
-            fc = tf.layers.dense(inputs=x, units=self.input_dim, activation=tf.nn.elu,
+            fc = tf.layers.dense(inputs=x, units=self.input_dim, activation=None,
                 kernel_initializer=tf.contrib.layers.xavier_initializer())
+            fc = tf.contrib.layers.batch_norm(inputs=fc, scale=True,
+                updates_collections=None, is_training=self.do_train,
+                trainable=self.do_train)
+            fc = tf.nn.elu(fc)
             fc = tf.layers.dense(inputs=fc, units=1, activation=None,
                 kernel_initializer=tf.contrib.layers.xavier_initializer())
         return fc
