@@ -22,11 +22,13 @@ class GAN(object):
 
         if batch_size%2 != 0:
             raise ValueError('batch_size must be even')
+        self.disc_sum, self.gen_sum = [], []
         self.create_graph()
         os.makedirs('summary', exist_ok=True)
         sub_d = len(os.listdir('summary'))
         self.train_writer = tf.summary.FileWriter(logdir = 'summary/'+str(sub_d))
-        self.merged = tf.summary.merge_all()
+        self.disc_merge = tf.summary.merge(self.disc_sum)
+        self.gen_merge = tf.summary.merge(self.gen_sum)
 
         config = tf.ConfigProto()
         config.gpu_options.allow_growth = True
@@ -56,9 +58,6 @@ class GAN(object):
         self.keep_prob,\
         self.weight_decay,\
         self.learn_rate = self.input_graph()
-
-        images = tf.reshape(self.inputs, [self.batch_size//2, 28, 28, 1])
-        tf.summary.image('original_img', images)
         
         z = tf.random_normal([self.batch_size//2, self.z_dim])
         self.fake_x = self.generator(data_dim=self.input_dim, z=z)
@@ -95,7 +94,7 @@ class GAN(object):
                 kernel_initializer=tf.contrib.layers.xavier_initializer())
 
         images = tf.reshape(fc, [self.batch_size//2, 28, 28, 1])
-        tf.summary.image('generated img', images)
+        self.gen_sum.append(tf.summary.image('generated img', images, max_outputs=12))
         return fc
 
 
@@ -121,7 +120,7 @@ class GAN(object):
             logits=logits)
 
         cost = tf.reduce_mean(cost)
-        # tf.summary.scalar('discriminator cost', cost)
+        self.disc_sum.append(tf.summary.scalar('discriminator cost', cost))
         return cost
 
 
@@ -134,7 +133,7 @@ class GAN(object):
             logits=logits[self.batch_size//2:,:])
 
         cost = tf.reduce_mean(cost)
-        # tf.summary.scalar('generator cost', cost)
+        self.gen_sum.append(tf.summary.scalar('generator cost', cost))
         return cost
 
 
@@ -152,6 +151,22 @@ class GAN(object):
                 var_list=tf.get_collection('trainable_variables', scope='generator'))
         return train_disc, train_gen
 
+        
+    #---------------------------------------------------------------------------  
+    def save_model(self, path = 'beat_detector_model', step = None):
+        p = self.saver.save(self.sess, path, global_step = step)
+        print("\tModel saved in file: %s" % p)
+
+
+    #---------------------------------------------------------------------------
+    def load_model(self, path):
+        #path is path to file or path to directory
+        #if path it is path to directory will be load latest model
+        load_path = os.path.splitext(path)[0]\
+        if os.path.isfile(path) else tf.train.latest_checkpoint(path)
+        print('try to load {}'.format(load_path))
+        self.saver.restore(self.sess, load_path)
+        print("Model restored from file %s" % load_path)
 
     #---------------------------------------------------------------------------
     def train_(self, data_loader,  keep_prob, weight_decay,  learn_rate_start,
@@ -174,12 +189,13 @@ class GAN(object):
                         self.weight_decay : weight_decay,
                         self.learn_rate : learn_rate}
                         
-            _, summary = self.sess.run([self.train_disc, self.merged],
+            _, summary = self.sess.run([self.train_disc, self.disc_merge],
                 feed_dict=feedDict)
             self.train_writer.add_summary(summary, current_iter)
 
-            _, summary = self.sess.run([self.train_gen, self.merged],
+            _, summary = self.sess.run([self.train_gen, self.gen_merge],
                 feed_dict=feedDict)
+            self.train_writer.add_summary(summary, current_iter)
 
             if (current_iter+1) % save_model_every_n_iter == 0:
                 self.save_model(path = path_to_model, step = current_iter+1)
@@ -187,14 +203,3 @@ class GAN(object):
         self.save_model(path = path_to_model, step = current_iter+1)
         print('\nTrain finished!')
         print("Training time --- %s seconds ---" % (time.time() - start_time))
-
-
-
-
-
-
-
-
-# testing #####################################################################################################################
-if __name__ == '__main__':
-    gan = GAN(do_train=True, input_dim=784, z_dim=20, batch_size=256)
