@@ -128,7 +128,6 @@ class GAN(Model):
     # --------------------------------------------------------------------------
     def create_optimizer_graph(self, disc_cost, gen_cost):
         print('create_optimizer_graph')
-        [print(i) for i in tf.trainable_variables()]
         with tf.variable_scope('optimizer_graph'):
             disc_optimizer = tf.train.AdamOptimizer(self.learn_rate)
             disc_list_grad = disc_optimizer.compute_gradients(disc_cost, 
@@ -179,6 +178,6 @@ class GAN(Model):
             if (current_iter+1) % save_model_every_n_iter == 0:
                 self.save_model(path=path_to_model, sess=self.sess, step=current_iter+1)
 
-        self.save_model(path = path_to_model, step = current_iter+1)
+        self.save_model(path=path_to_model, sess=self.sess, step=current_iter+1)
         print('\nTrain finished!')
         print("Training time --- %s seconds ---" % (time.time() - start_time))
