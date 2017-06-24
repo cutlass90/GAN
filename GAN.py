@@ -7,53 +7,42 @@ import tensorflow as tf
 import numpy as np
 from tqdm import tqdm
 
+from model_abstract import Model
 
+class GAN(Model):
 
-
-
-class GAN(object):
-
-    def __init__(self, do_train, input_dim, z_dim, batch_size):
+    def __init__(self, do_train, input_dim, z_dim, batch_size, scope):
 
         self.do_train = do_train
         self.input_dim = input_dim
         self.z_dim = z_dim
         self.batch_size = batch_size
-
+        self.scope = scope
         if batch_size%2 != 0:
             raise ValueError('batch_size must be even')
+
         self.disc_sum, self.gen_sum = [], []
-        self.create_graph()
-        os.makedirs('summary', exist_ok=True)
-        sub_d = len(os.listdir('summary'))
-        self.train_writer = tf.summary.FileWriter(logdir = 'summary/'+str(sub_d))
-        self.disc_merge = tf.summary.merge(self.disc_sum)
-        self.gen_merge = tf.summary.merge(self.gen_sum)
+        with tf.variable_scope(scope):
+            self.create_graph()
+        if do_train:
+            self.discriminator_cost = self.get_discriminator_cost(self.logits)
+            self.generator_cost = self.get_generator_cost(self.logits)
+            
+            self.train_disc, self.train_gen = self.create_optimizer_graph(
+                self.discriminator_cost, self.generator_cost)
+            self.train_writer, self.test_writer = self.create_summary_writers()
+            self.disc_merge = tf.summary.merge(self.disc_sum)
+            self.gen_merge = tf.summary.merge(self.gen_sum)
 
-        config = tf.ConfigProto()
-        config.gpu_options.allow_growth = True
-        self.sess = tf.Session(config = config)
+        self.sess = self.create_session()
         self.sess.run(tf.global_variables_initializer())
+        self.stored_vars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope=scope)
+        self.saver = tf.train.Saver(self.stored_vars, max_to_keep=1000)
 
-        self.saver = tf.train.Saver(var_list=tf.global_variables(),
-                                    max_to_keep = 1000)
-        
-    # --------------------------------------------------------------------------
-    def __enter__(self):
-        return self
-
-
-    # --------------------------------------------------------------------------
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        tf.reset_default_graph()
-        if self.sess is not None:
-            self.sess.close()
-        
 
     # --------------------------------------------------------------------------
     def create_graph(self):
         print('Creat graph')
-
         self.inputs,\
         self.keep_prob,\
         self.weight_decay,\
@@ -63,14 +52,7 @@ class GAN(object):
         self.fake_x = self.generator(data_dim=self.input_dim, z=z)
 
         x = tf.concat((self.inputs, self.fake_x), 0)
-        logits = self.discriminator(x) # b x 1
-
-        self.discriminator_cost = self.get_discriminator_cost(logits)
-        self.generator_cost = self.get_generator_cost(logits)
-        
-        self.train_disc, self.train_gen = self.create_optimizer_graph(
-            self.discriminator_cost, self.generator_cost)
-        
+        self.logits = self.discriminator(x) # b x 1
         print('Done!')
 
 
@@ -91,8 +73,7 @@ class GAN(object):
             fc = tf.layers.dense(inputs=z, units=data_dim, activation=None,
                 kernel_initializer=tf.contrib.layers.xavier_initializer())
             fc = tf.contrib.layers.batch_norm(inputs=fc, scale=True,
-                updates_collections=None, is_training=self.do_train,
-                trainable=self.do_train)
+                updates_collections=None, is_training=self.do_train)
             fc = tf.nn.elu(fc)
             fc = tf.layers.dense(inputs=fc, units=data_dim, activation=tf.sigmoid,
                 kernel_initializer=tf.contrib.layers.xavier_initializer())
@@ -109,8 +90,7 @@ class GAN(object):
             fc = tf.layers.dense(inputs=x, units=self.input_dim, activation=None,
                 kernel_initializer=tf.contrib.layers.xavier_initializer())
             fc = tf.contrib.layers.batch_norm(inputs=fc, scale=True,
-                updates_collections=None, is_training=self.do_train,
-                trainable=self.do_train)
+                updates_collections=None, is_training=self.do_train)
             fc = tf.nn.elu(fc)
             fc = tf.layers.dense(inputs=fc, units=1, activation=None,
                 kernel_initializer=tf.contrib.layers.xavier_initializer())
@@ -154,43 +134,21 @@ class GAN(object):
             gen_optimizer = tf.train.AdamOptimizer(self.learn_rate)
             
             train_disc = disc_optimizer.minimize(disc_cost,
-                var_list=tf.get_collection('trainable_variables', scope='discriminator'))
+                var_list=tf.get_collection('trainable_variables', scope=self.scope+'/discriminator'))
             train_gen = gen_optimizer.minimize(gen_cost,
-                var_list=tf.get_collection('trainable_variables', scope='generator'))
+                var_list=tf.get_collection('trainable_variables', scope=self.scope+'/generator'))
         return train_disc, train_gen
 
-        
-    #---------------------------------------------------------------------------  
-    def save_model(self, path = 'beat_detector_model', step = None):
-        p = self.saver.save(self.sess, path, global_step = step)
-        print("\tModel saved in file: %s" % p)
-
-
-    #---------------------------------------------------------------------------
-    def load_model(self, path):
-        #path is path to file or path to directory
-        #if path it is path to directory will be load latest model
-        load_path = os.path.splitext(path)[0]\
-        if os.path.isfile(path) else tf.train.latest_checkpoint(path)
-        print('try to load {}'.format(load_path))
-        self.saver.restore(self.sess, load_path)
-        print("Model restored from file %s" % load_path)
 
     #---------------------------------------------------------------------------
     def train_(self, data_loader,  keep_prob, weight_decay,  learn_rate_start,
         learn_rate_end, n_iter, save_model_every_n_iter, path_to_model):
         print('\n\n\n\t----==== Training ====----')
-        #try to load model
-        try:
-            self.load_model(os.path.dirname(path_to_model))
-        except:
-            print('Can not load model {0}, starting new train'.format(path_to_model))
             
         start_time = time.time()
-        b = math.log(learn_rate_start/learn_rate_end, n_iter) 
-        a = learn_rate_start*math.pow(1, b)
         for current_iter in tqdm(range(n_iter)):
-            learn_rate = a/math.pow((current_iter+1), b)
+            learn_rate = self.scaled_exp_decay(learn_rate_start, learn_rate_end,
+                n_iter, current_iter)
             batch = data_loader.next_batch(self.batch_size//2)
             feedDict = {self.inputs : batch[0],
                         self.keep_prob : keep_prob,
