@@ -131,12 +131,25 @@ class GAN(Model):
         [print(i) for i in tf.trainable_variables()]
         with tf.variable_scope('optimizer_graph'):
             disc_optimizer = tf.train.AdamOptimizer(self.learn_rate)
+            disc_list_grad = disc_optimizer.compute_gradients(disc_cost, 
+                var_list=tf.get_collection('trainable_variables',
+                    scope=self.scope+'/discriminator'))
+            disc_grad = tf.reduce_mean([tf.reduce_mean(tf.abs(t))\
+                for t,n in disc_list_grad if t is not None])
+            self.disc_sum.append(tf.summary.scalar('disc_grad', disc_grad))
+            train_disc = disc_optimizer.apply_gradients(disc_list_grad)
+
             gen_optimizer = tf.train.AdamOptimizer(self.learn_rate)
-            
-            train_disc = disc_optimizer.minimize(disc_cost,
-                var_list=tf.get_collection('trainable_variables', scope=self.scope+'/discriminator'))
-            train_gen = gen_optimizer.minimize(gen_cost,
-                var_list=tf.get_collection('trainable_variables', scope=self.scope+'/generator'))
+            gen_list_grad = gen_optimizer.compute_gradients(gen_cost, 
+                var_list=tf.get_collection('trainable_variables',
+                    scope=self.scope+'/generator'))
+            gen_grad = tf.reduce_mean([tf.reduce_mean(tf.abs(t))\
+                for t,n in gen_list_grad if t is not None])
+            self.gen_sum.append(tf.summary.scalar('gen_grad', gen_grad))
+            train_gen = gen_optimizer.apply_gradients(gen_list_grad)
+
+
+
         return train_disc, train_gen
 
 
@@ -164,7 +177,7 @@ class GAN(Model):
             self.train_writer.add_summary(summary, current_iter)
 
             if (current_iter+1) % save_model_every_n_iter == 0:
-                self.save_model(path = path_to_model, step = current_iter+1)
+                self.save_model(path=path_to_model, sess=self.sess, step=current_iter+1)
 
         self.save_model(path = path_to_model, step = current_iter+1)
         print('\nTrain finished!')
