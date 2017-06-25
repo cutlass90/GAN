@@ -8,6 +8,7 @@ import numpy as np
 from tqdm import tqdm
 
 from model_abstract import Model
+from plot import sample as plot_samples
 
 class GAN(Model):
 
@@ -50,7 +51,8 @@ class GAN(Model):
         self.targets,\
         self.keep_prob,\
         self.weight_decay,\
-        self.learn_rate = self.input_graph()
+        self.learn_rate,\
+        self.is_training = self.input_graph()
         
         z = tf.random_normal([self.batch_size//2, self.z_dim])
         self.x_fake, self.logits_fake = self.generator(data_dim=self.input_dim, z=z,
@@ -72,7 +74,8 @@ class GAN(Model):
         keep_prob = tf.placeholder(tf.float32, name='keep_prob')
         weight_decay = tf.placeholder(tf.float32, name='weight_decay')
         learn_rate = tf.placeholder(tf.float32, name='learn_rate')
-        return inputs, targets, keep_prob, weight_decay, learn_rate
+        is_training = tf.placeholder(tf.bool, name='is_training')
+        return inputs, targets, keep_prob, weight_decay, learn_rate, is_training
 
 
     # --------------------------------------------------------------------------
@@ -82,7 +85,7 @@ class GAN(Model):
             fc = tf.layers.dense(inputs=z, units=data_dim, activation=None,
                 kernel_initializer=tf.contrib.layers.xavier_initializer())
             fc = tf.contrib.layers.batch_norm(inputs=fc, scale=True,
-                updates_collections=None, is_training=self.do_train)
+                updates_collections=None, is_training=self.is_training)
             fc = tf.nn.elu(fc)
             fc = tf.layers.dense(inputs=fc, units=data_dim+n_classes, activation=None,
                 kernel_initializer=tf.contrib.layers.xavier_initializer())
@@ -101,7 +104,7 @@ class GAN(Model):
             fc = tf.layers.dense(inputs=x, units=self.input_dim, activation=None,
                 kernel_initializer=tf.contrib.layers.xavier_initializer())
             fc = tf.contrib.layers.batch_norm(inputs=fc, scale=True,
-                updates_collections=None, is_training=self.do_train)
+                updates_collections=None, is_training=self.is_training)
             fc = tf.nn.elu(fc)
             fc = tf.layers.dense(inputs=fc, units=n_classes + 1, activation=None,
                 kernel_initializer=tf.contrib.layers.xavier_initializer())
@@ -220,7 +223,8 @@ class GAN(Model):
                         self.targets : batch[1],
                         self.keep_prob : keep_prob,
                         self.weight_decay : weight_decay,
-                        self.learn_rate : learn_rate}
+                        self.learn_rate : learn_rate,
+                        self.is_training : True}
                         
             _, summary = self.sess.run([self.train_disc, self.disc_merge],
                 feed_dict=feedDict)
@@ -232,9 +236,19 @@ class GAN(Model):
             if current_iter%50 == 0:
                 self.train_writer.add_summary(summary, current_iter)
 
+            if current_iter%1000 == 0:
+                samples = self.sample()
+                plot_samples(samples, current_iter)
+
             if (current_iter+1) % save_model_every_n_iter == 0:
                 self.save_model(path=path_to_model, sess=self.sess, step=current_iter+1)
 
         self.save_model(path=path_to_model, sess=self.sess, step=current_iter+1)
         print('\nTrain finished!')
         print("Training time --- %s seconds ---" % (time.time() - start_time))
+
+
+    #---------------------------------------------------------------------------
+    def sample(self):
+        samples = self.sess.run(self.x_fake, {self.is_training:False})
+        return samples[:100,...]
