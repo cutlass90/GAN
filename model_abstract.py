@@ -78,4 +78,3 @@ class Model(object):
         a = start*math.pow(1, b)
         learn_rate = a/math.pow((current_iter+1), b)
         return learn_rate
-

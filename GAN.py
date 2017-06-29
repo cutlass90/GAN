@@ -252,3 +252,4 @@ class GAN(Model):
     def sample(self):
         samples = self.sess.run(self.x_fake, {self.is_training:False})
         return samples[:100,...]
+        

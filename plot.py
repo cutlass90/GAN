@@ -24,3 +24,4 @@ def sample(samples, step=0):
     fig.savefig('pics/sample_{}.png'.format(step))
     plt.close()
     print('Sample saved.')
+    
