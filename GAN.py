@@ -103,7 +103,7 @@ class GAN(Model):
 
     # --------------------------------------------------------------------------
     def get_discriminator_cost(self, logits):
-        print('\tget_discriminator_cost')
+        print('get_discriminator_cost')
         ones = tf.constant(value=1., shape=[self.batch_size//2,1])
         zeros = tf.constant(value=0., shape=[self.batch_size//2,1])
         true_labels = tf.concat([ones, zeros], axis=0)
@@ -118,7 +118,7 @@ class GAN(Model):
 
     # --------------------------------------------------------------------------
     def get_generator_cost(self, logits):
-        print('\tget_generator_cost')
+        print('get_generator_cost')
         true_labels = tf.constant(value=1., shape=[self.batch_size//2,1])
 
         cost = tf.nn.sigmoid_cross_entropy_with_logits(labels=true_labels,

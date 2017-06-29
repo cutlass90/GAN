@@ -34,7 +34,7 @@ class Model(object):
         load_path = tf.train.latest_checkpoint(path)\
         if os.path.isdir(path) else path
         if load_path is None:
-            print('Can not load model, start new train')
+            print('Can not load model')
             raise FileNotFoundError
         print('try to load {}'.format(load_path))
         self.saver.restore(self.sess, load_path)
