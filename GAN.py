@@ -23,6 +23,7 @@ class GAN(Model):
         self.disc_sum, self.gen_sum = [], []
         with tf.variable_scope(scope):
             self.create_graph()
+        # [print(i) for i in tf.trainable_variables()]
         if do_train:
             self.discriminator_cost = self.get_discriminator_cost(self.targets,
                 self.logits_class_r, self.logits_critic_r, self.logits_critic_f)
@@ -36,6 +37,7 @@ class GAN(Model):
             self.gen_merge = tf.summary.merge(self.gen_sum)
 
         self.sess = self.create_session()
+        self.train_writer.add_graph(tf.get_default_graph())
         self.sess.run(tf.global_variables_initializer())
         self.stored_vars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope=scope)
         self.saver = tf.train.Saver(self.stored_vars, max_to_keep=1000)
@@ -55,11 +57,15 @@ class GAN(Model):
         self.x_fake, self.logits_fake = self.generator(z=self.z,
             structure=[256, 256, self.input_dim+self.n_classes])
 
-        self.logits_class_r, self.logits_critic_r = self.discriminator(self.inputs,
-            structure=[256, 256, self.n_classes+1], reuse=False) # b x 10, b x 1
+        x = tf.concat((self.inputs, self.x_fake), axis=0)
 
-        self.logits_class_f, self.logits_critic_f = self.discriminator(self.x_fake,
-            structure=[256, 256, self.n_classes+1], reuse=True) # b x 10, b x 1
+        logits_class, logits_critic = self.discriminator(x,
+            structure=[256, 256, self.n_classes+1]) # b x 10, b x 1
+
+        self.logits_class_r, self.logits_class_f = tf.split(logits_class,
+            num_or_size_splits=2, axis=0)
+        self.logits_critic_r, self.logits_critic_f = tf.split(logits_critic,
+            num_or_size_splits=2, axis=0)
 
         print('Done!')
 
@@ -97,10 +103,10 @@ class GAN(Model):
 
 
     # --------------------------------------------------------------------------
-    def discriminator(self, x, structure, reuse):
+    def discriminator(self, x, structure):
         print('\tdiscriminator')
-        with tf.variable_scope('discriminator', reuse=reuse):
-            for layer in structure[:-1]:
+        with tf.variable_scope('discriminator'):
+            for i, layer in enumerate(structure[:-1]):
                 x = tf.layers.dense(inputs=x, units=layer, activation=None,
                     kernel_initializer=tf.contrib.layers.xavier_initializer())
                 x = tf.contrib.layers.batch_norm(inputs=x, scale=True,
@@ -124,10 +130,10 @@ class GAN(Model):
         loss_class_r = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(
             labels=targets, logits=logits_class_r))  # b x 10
         loss_critic_r = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(
-            labels=ones, logits=logits_critic_r)) # b x 1
+            labels=ones, logits=logits_critic_r)) 
         loss_critic_f = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(
-            labels=zeros, logits=logits_critic_f)) # b/2 x 1
-        cost = loss_class_r + loss_critic_r + loss_critic_f
+            labels=zeros, logits=logits_critic_f)) 
+        cost = loss_critic_r + loss_critic_f + loss_class_r
         with tf.name_scope('discriminator'):
             self.disc_sum.append(tf.summary.scalar('loss_class_r', loss_class_r))
             self.disc_sum.append(tf.summary.scalar('loss_critic_r', loss_critic_r))
@@ -178,7 +184,7 @@ class GAN(Model):
                 dtype=tf.float32)
         loss_distrib = -tf.reduce_sum(target_distrib*tf.log(class_distrib+1e-6))
             
-        cost = loss_class_f + loss_critic_f + loss_distrib
+        cost = loss_critic_f + loss_class_f + loss_distrib
 
         class_balance_f = tf.argmax(logits_class_gen, axis=1)
         class_balance_r = tf.argmax(logits_class_critic, axis=1)
@@ -244,7 +250,7 @@ class GAN(Model):
             if current_iter%50 == 0:
                 self.train_writer.add_summary(summary, current_iter)
 
-            if current_iter%1000 == 0:
+            if (current_iter+1)%1000 == 0:
                 samples = self.sample()
                 plot_samples(samples, current_iter)
 
