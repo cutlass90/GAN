@@ -12,16 +12,13 @@ from plot import sample as plot_samples
 
 class GAN(Model):
 
-    def __init__(self, do_train, input_dim, n_classes, z_dim, batch_size, scope):
+    def __init__(self, do_train, input_dim, n_classes, z_dim, scope):
 
         self.do_train = do_train
         self.input_dim = input_dim
         self.n_classes = n_classes
         self.z_dim = z_dim
-        self.batch_size = batch_size
         self.scope = scope
-        if batch_size%2 != 0:
-            raise ValueError('batch_size must be even')
 
         self.disc_sum, self.gen_sum = [], []
         with tf.variable_scope(scope):
@@ -29,7 +26,7 @@ class GAN(Model):
         if do_train:
             self.discriminator_cost = self.get_discriminator_cost(self.targets,
                 self.logits_class_r, self.logits_critic_r, self.logits_critic_f)
-            self.generator_cost = self.get_generator_cost(self.targets_f,
+            self.generator_cost = self.get_generator_cost(self.logits_class_f,
                 self.logits_critic_f, self.logits_fake)
             
             self.train_disc, self.train_gen = self.create_optimizer_graph(
@@ -48,87 +45,86 @@ class GAN(Model):
     def create_graph(self):
         print('Creat graph')
         self.inputs,\
+        self.z,\
         self.targets,\
         self.keep_prob,\
         self.weight_decay,\
         self.learn_rate,\
         self.is_training = self.input_graph()
-        
-        z = tf.random_normal([self.batch_size//2, self.z_dim])
-        self.x_fake, self.logits_fake = self.generator(data_dim=self.input_dim, z=z,
-            n_classes=self.n_classes)
 
-        x = tf.concat((self.inputs, self.x_fake), 0)
-        self.logits_class_r,\
-        self.logits_critic_r,\
-        self.targets_f,\
-        self.logits_critic_f = self.discriminator(x, self.n_classes) # b x 1
+        self.x_fake, self.logits_fake = self.generator(z=self.z,
+            structure=[256, 256, self.input_dim+self.n_classes])
+
+        self.logits_class_r, self.logits_critic_r = self.discriminator(self.inputs,
+            structure=[256, 256, self.n_classes+1], reuse=False) # b x 10, b x 1
+
+        self.logits_class_f, self.logits_critic_f = self.discriminator(self.x_fake,
+            structure=[256, 256, self.n_classes+1], reuse=True) # b x 10, b x 1
+
         print('Done!')
 
 
     # --------------------------------------------------------------------------
     def input_graph(self):
         print('\tinput_graph')
-        inputs = tf.placeholder(tf.float32, shape=[self.batch_size//2, self.input_dim], name='inputs')
-        targets = tf.placeholder(tf.float32, shape=[self.batch_size//2, self.n_classes], name='targets')
+        inputs = tf.placeholder(tf.float32, shape=[None, self.input_dim], name='inputs')
+        targets = tf.placeholder(tf.float32, shape=[None, self.n_classes], name='targets')
+        z = tf.placeholder(tf.float32, shape=[None, self.z_dim], name='z')
         keep_prob = tf.placeholder(tf.float32, name='keep_prob')
         weight_decay = tf.placeholder(tf.float32, name='weight_decay')
         learn_rate = tf.placeholder(tf.float32, name='learn_rate')
         is_training = tf.placeholder(tf.bool, name='is_training')
-        return inputs, targets, keep_prob, weight_decay, learn_rate, is_training
+        return inputs, z, targets, keep_prob, weight_decay, learn_rate, is_training
 
 
     # --------------------------------------------------------------------------
-    def generator(self, data_dim, z, n_classes):
+    def generator(self, z, structure):
         print('\tgenerator')
         with tf.variable_scope('generator'):
-            fc = tf.layers.dense(inputs=z, units=data_dim, activation=None,
+            for layer in structure[:-1]:
+                z = tf.layers.dense(inputs=z, units=layer, activation=None,
+                    kernel_initializer=tf.contrib.layers.xavier_initializer())
+                z = tf.contrib.layers.batch_norm(inputs=z, scale=True,
+                    updates_collections=None, is_training=self.is_training)
+                z = tf.nn.elu(z)
+            z = tf.layers.dense(inputs=z, units=structure[-1], activation=None,
                 kernel_initializer=tf.contrib.layers.xavier_initializer())
-            fc = tf.contrib.layers.batch_norm(inputs=fc, scale=True,
-                updates_collections=None, is_training=self.is_training)
-            fc = tf.nn.elu(fc)
-            fc = tf.layers.dense(inputs=fc, units=data_dim+n_classes, activation=None,
-                kernel_initializer=tf.contrib.layers.xavier_initializer())
-            x_fake = tf.sigmoid(fc[:, :data_dim])
-            logits_fake = fc[:, data_dim:]
-
-        images = tf.reshape(x_fake, [self.batch_size//2, 28, 28, 1])
+            x_fake = tf.sigmoid(z[:, :self.input_dim])
+            logits_fake = z[:, self.input_dim:]
+        images = tf.reshape(x_fake, [-1, 28, 28, 1])
         self.gen_sum.append(tf.summary.image('generated img', images, max_outputs=100))
         return x_fake, logits_fake
 
 
     # --------------------------------------------------------------------------
-    def discriminator(self, x, n_classes):
+    def discriminator(self, x, structure, reuse):
         print('\tdiscriminator')
-        with tf.variable_scope('discriminator'):
-            fc = tf.layers.dense(inputs=x, units=self.input_dim, activation=None,
+        with tf.variable_scope('discriminator', reuse=reuse):
+            for layer in structure[:-1]:
+                x = tf.layers.dense(inputs=x, units=layer, activation=None,
+                    kernel_initializer=tf.contrib.layers.xavier_initializer())
+                x = tf.contrib.layers.batch_norm(inputs=x, scale=True,
+                    updates_collections=None, is_training=self.is_training)
+                x = tf.nn.elu(x)
+            x = tf.layers.dense(inputs=x, units=structure[-1], activation=None,
                 kernel_initializer=tf.contrib.layers.xavier_initializer())
-            fc = tf.contrib.layers.batch_norm(inputs=fc, scale=True,
-                updates_collections=None, is_training=self.is_training)
-            fc = tf.nn.elu(fc)
-            fc = tf.layers.dense(inputs=fc, units=n_classes + 1, activation=None,
-                kernel_initializer=tf.contrib.layers.xavier_initializer())
-            fc_r = fc[:self.batch_size//2, :]
-            fc_f = fc[self.batch_size//2:, :]
-            logits_class_r = fc_r[:,:n_classes]
-            logits_critic_r = fc_r[:,n_classes:n_classes+1]
-            targets_f = tf.nn.softmax(fc_f[:,:n_classes])
-            logits_critic_f = fc_f[:,n_classes:n_classes+1]
-
-        return logits_class_r, logits_critic_r, targets_f, logits_critic_f
+            logits_class = x[:, :self.n_classes] # b x n_classes
+            logits_critic = x[:, self.n_classes:] # b x 1 probability of true sample
+        return logits_class, logits_critic
 
 
     # --------------------------------------------------------------------------
     def get_discriminator_cost(self, targets, logits_class_r, logits_critic_r,
         logits_critic_f):
         print('get_discriminator_cost')
-        ones = tf.constant(value=1., shape=[self.batch_size//2,1])
-        zeros = tf.constant(value=0., shape=[self.batch_size//2,1])
+        
+        ones = tf.ones(shape=tf.shape(logits_critic_r))
+        zeros = tf.zeros(shape=tf.shape(logits_critic_f))
 
-        loss_class_r = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(
-            labels=targets, logits=logits_class_r))  # b/2 x 10
+        loss_class_r = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(
+            labels=targets, logits=logits_class_r))  # b x 10
         loss_critic_r = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(
-            labels=ones, logits=logits_critic_r)) # b/2 x 1
+            labels=ones, logits=logits_critic_r)) # b x 1
         loss_critic_f = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(
             labels=zeros, logits=logits_critic_f)) # b/2 x 1
         cost = loss_class_r + loss_critic_r + loss_critic_f
@@ -157,27 +153,37 @@ class GAN(Model):
 
 
     # --------------------------------------------------------------------------
-    def get_generator_cost(self, targets_f, logits_critic_f, logits_fake):
+    def get_generator_cost(self, logits_class_critic, logits_critic_f,
+        logits_class_gen):
+        """
+            Args:
+                logits_class_critic: tensor, class logits from critic on fake data,
+                that has been provided by generator
+                logits_critic_f: tensor, logits from critic about fake data
+                logits_class_gen: tensor, class logits from generator
+        """
         print('get_generator_cost')
-        ones = tf.constant(value=1., shape=[self.batch_size//2,1])
 
-        loss_class_f = 30*tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(
-            labels=targets_f, logits=logits_fake))
+        labels = tf.nn.softmax(logits_class_critic)
+        loss_class_f = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(
+            labels=labels, logits=logits_class_gen))
+
+        ones = tf.ones(shape=tf.shape(logits_critic_f))
         loss_critic_f = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(
             labels=ones, logits=logits_critic_f))
-        # class_distrib = tf.nn.softmax(tf.reduce_sum(logits_fake, 0))
-        class_distrib = tf.reduce_mean(tf.nn.softmax(logits_fake),0)
+
+        class_distrib = tf.reduce_mean(tf.nn.softmax(logits_class_critic),0) # 10
         # class_distrib = tf.Print(class_distrib, [class_distrib], summarize=100)
-        labels=tf.constant(value=1./self.n_classes, shape=[self.n_classes],
+        target_distrib=tf.constant(value=1./self.n_classes, shape=[self.n_classes],
                 dtype=tf.float32)
-        loss_distrib = -20*tf.reduce_sum(labels*tf.log(class_distrib+1e-6))
+        loss_distrib = -tf.reduce_sum(target_distrib*tf.log(class_distrib+1e-6))
             
         cost = loss_class_f + loss_critic_f + loss_distrib
 
-        class_balance_f = tf.argmax(logits_fake, axis=1)
-        class_balance_r = tf.argmax(targets_f, axis=1)
-        self.gen_sum.append(tf.summary.histogram('class_balance_fake', class_balance_f))
-        self.gen_sum.append(tf.summary.histogram('class_balance_real', class_balance_r))
+        class_balance_f = tf.argmax(logits_class_gen, axis=1)
+        class_balance_r = tf.argmax(logits_class_critic, axis=1)
+        self.gen_sum.append(tf.summary.histogram('class_balance_generator', class_balance_f))
+        self.gen_sum.append(tf.summary.histogram('class_balance_critic', class_balance_r))
         with tf.name_scope('generator'):
             self.gen_sum.append(tf.summary.scalar('loss_class_f', loss_class_f))
             self.gen_sum.append(tf.summary.scalar('loss_critic_f', loss_critic_f))
@@ -210,7 +216,7 @@ class GAN(Model):
 
 
     #---------------------------------------------------------------------------
-    def train_(self, data_loader,  keep_prob, weight_decay,  learn_rate_start,
+    def train_(self, data_loader, batch_size, keep_prob, weight_decay,  learn_rate_start,
         learn_rate_end, n_iter, save_model_every_n_iter, path_to_model):
         print('\n\n\n\t----==== Training ====----')
             
@@ -218,8 +224,10 @@ class GAN(Model):
         for current_iter in tqdm(range(n_iter)):
             learn_rate = self.scaled_exp_decay(learn_rate_start, learn_rate_end,
                 n_iter, current_iter)
-            batch = data_loader.next_batch(self.batch_size//2)
+            batch = data_loader.next_batch(batch_size)
+            z = np.random.normal(size=[batch_size, self.z_dim])
             feedDict = {self.inputs : batch[0],
+                        self.z :z,
                         self.targets : batch[1],
                         self.keep_prob : keep_prob,
                         self.weight_decay : weight_decay,
@@ -250,6 +258,7 @@ class GAN(Model):
 
     #---------------------------------------------------------------------------
     def sample(self):
-        samples = self.sess.run(self.x_fake, {self.is_training:False})
-        return samples[:100,...]
+        z = np.random.normal(size=[100, self.z_dim])
+        samples = self.sess.run(self.x_fake, {self.is_training:False, self.z:z})
+        return samples
         
