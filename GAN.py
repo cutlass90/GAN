@@ -25,9 +25,8 @@ class GAN(Model):
             self.create_graph()
         # [print(i) for i in tf.trainable_variables()]
         if do_train:
-            self.discriminator_cost = self.get_discriminator_cost(self.y_l,
-                self.logits_class_l, self.logits_critic_l, self.logits_critic_unl
-                self.logits_critic_f)
+            self.discriminator_cost = self.get_discriminator_cost(self.targets,
+                self.logits_class_r, self.logits_critic_r, self.logits_critic_f)
             self.generator_cost = self.get_generator_cost(self.logits_class_f,
                 self.logits_critic_f, self.logits_fake)
             
@@ -47,10 +46,9 @@ class GAN(Model):
     # --------------------------------------------------------------------------
     def create_graph(self):
         print('Creat graph')
-        self.x_l,\
-        self.y_l,\
-        self.x_unl,
+        self.inputs,\
         self.z,\
+        self.targets,\
         self.keep_prob,\
         self.weight_decay,\
         self.learn_rate,\
@@ -59,16 +57,15 @@ class GAN(Model):
         self.x_fake, self.logits_fake = self.generator(z=self.z,
             structure=[256, 256, self.input_dim+self.n_classes])
 
-        x = tf.concat((self.x_l, self.x_unl, self.x_fake), axis=0)
+        x = tf.concat((self.inputs, self.x_fake), axis=0)
 
         logits_class, logits_critic = self.discriminator(x,
             structure=[256, 256, self.n_classes+1]) # b x 10, b x 1
 
-        self.logits_class_l, self.logits_class_unl, self.logits_class_f =\
-        tf.split(logits_class, num_or_size_splits=3, axis=0)
-
-        self.logits_critic_l, self.logits_critic_unl, self.logits_critic_f =\
-        tf.split(logits_critic, num_or_size_splits=3, axis=0)
+        self.logits_class_r, self.logits_class_f = tf.split(logits_class,
+            num_or_size_splits=2, axis=0)
+        self.logits_critic_r, self.logits_critic_f = tf.split(logits_critic,
+            num_or_size_splits=2, axis=0)
 
         print('Done!')
 
@@ -76,15 +73,14 @@ class GAN(Model):
     # --------------------------------------------------------------------------
     def input_graph(self):
         print('\tinput_graph')
-        x_l = tf.placeholder(tf.float32, shape=[None, self.input_dim], name='inputs')
-        y_l = tf.placeholder(tf.float32, shape=[None, self.n_classes], name='targets')
-        x_unl = tf.placeholder(tf.float32, shape=[None, self.input_dim], name='inputs')
+        inputs = tf.placeholder(tf.float32, shape=[None, self.input_dim], name='inputs')
+        targets = tf.placeholder(tf.float32, shape=[None, self.n_classes], name='targets')
         z = tf.placeholder(tf.float32, shape=[None, self.z_dim], name='z')
         keep_prob = tf.placeholder(tf.float32, name='keep_prob')
         weight_decay = tf.placeholder(tf.float32, name='weight_decay')
         learn_rate = tf.placeholder(tf.float32, name='learn_rate')
         is_training = tf.placeholder(tf.bool, name='is_training')
-        return x_l, y_l, x_unl, z, keep_prob, weight_decay, learn_rate, is_training
+        return inputs, z, targets, keep_prob, weight_decay, learn_rate, is_training
 
 
     # --------------------------------------------------------------------------
@@ -124,28 +120,22 @@ class GAN(Model):
 
 
     # --------------------------------------------------------------------------
-    def get_discriminator_cost(self, targets, logits_class_l, logits_critic_l,
-        logits_critic_unl, logits_critic_f):
+    def get_discriminator_cost(self, targets, logits_class_r, logits_critic_r,
+        logits_critic_f):
         print('get_discriminator_cost')
         
         ones = tf.ones(shape=tf.shape(logits_critic_r))
         zeros = tf.zeros(shape=tf.shape(logits_critic_f))
 
-        loss_class_l = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(
-            labels=targets, logits=logits_class_l))  # b x 10
-
-        loss_critic_l = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(
-            labels=ones, logits=logits_critic_l)) 
-
-        loss_critic_unl = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(
-            labels=ones, logits=logits_critic_unl)) 
-
+        loss_class_r = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(
+            labels=targets, logits=logits_class_r))  # b x 10
+        loss_critic_r = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(
+            labels=ones, logits=logits_critic_r)) 
         loss_critic_f = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(
             labels=zeros, logits=logits_critic_f)) 
-
-        cost = loss_critic_l + loss_critic_unl + loss_critic_f + loss_class_l
+        cost = loss_critic_r + loss_critic_f + loss_class_r
         with tf.name_scope('discriminator'):
-            self.disc_sum.append(tf.summary.scalar('loss_class_l', loss_class_l))
+            self.disc_sum.append(tf.summary.scalar('loss_class_r', loss_class_r))
             self.disc_sum.append(tf.summary.scalar('loss_critic_r', loss_critic_r))
             self.disc_sum.append(tf.summary.scalar('loss_critic_f', loss_critic_f))
 
@@ -232,7 +222,7 @@ class GAN(Model):
 
 
     #---------------------------------------------------------------------------
-    def train_(self, x_l, x_unl, y_l, z, keep_prob, weight_decay,  learn_rate_start,
+    def train_(self, data_loader, batch_size, keep_prob, weight_decay,  learn_rate_start,
         learn_rate_end, n_iter, save_model_every_n_iter, path_to_model):
         print('\n\n\n\t----==== Training ====----')
             
@@ -240,10 +230,11 @@ class GAN(Model):
         for current_iter in tqdm(range(n_iter)):
             learn_rate = self.scaled_exp_decay(learn_rate_start, learn_rate_end,
                 n_iter, current_iter)
-            feedDict = {self.x_l : x_l,
-                        self.y_l : y_l,
-                        self.x_unl : x_unl,
+            batch = data_loader.next_batch(batch_size)
+            z = np.random.normal(size=[batch_size, self.z_dim])
+            feedDict = {self.inputs : batch[0],
                         self.z :z,
+                        self.targets : batch[1],
                         self.keep_prob : keep_prob,
                         self.weight_decay : weight_decay,
                         self.learn_rate : learn_rate,

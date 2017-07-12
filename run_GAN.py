@@ -12,10 +12,6 @@ os.makedirs('models/', exist_ok=True)
 os.makedirs('summary/', exist_ok=True)
 mnist = input_data.read_data_sets("MNIST_data/", one_hot=True)
 
-mnist.train.images
-mnist.train.labels
-
-
 
 gan = GAN(do_train=True, input_dim=784, n_classes=10, z_dim=20, scope='GAN')
 # gan.load_model(path='models/gan-100000', sess=gan.sess)
