@@ -10,17 +10,14 @@ from tqdm import tqdm
 from model_abstract import Model
 from plot import sample as plot_samples
 
-class GAN(Model):
+class WGAN(Model):
 
-    def __init__(self, do_train, input_dim, z_dim, batch_size, scope):
+    def __init__(self, do_train, input_dim, z_dim, scope):
 
         self.do_train = do_train
         self.input_dim = input_dim
         self.z_dim = z_dim
-        self.batch_size = batch_size
         self.scope = scope
-        if batch_size%2 != 0:
-            raise ValueError('batch_size must be even')
 
         self.disc_sum, self.gen_sum = [], []
         with tf.variable_scope(scope):
@@ -45,13 +42,13 @@ class GAN(Model):
     def create_graph(self):
         print('Creat graph')
         self.inputs,\
+        self.z,\
         self.keep_prob,\
         self.weight_decay,\
         self.learn_rate,\
         self.is_training = self.input_graph()
         
-        z = tf.random_normal([self.batch_size//2, self.z_dim])
-        self.x_fake = self.generator(z=z, structure=[256, 256, self.input_dim])
+        self.x_fake = self.generator(z=self.z, structure=[256, 256, self.input_dim])
 
         x = tf.concat((self.inputs, self.x_fake), 0)
         self.logits = self.discriminator(x, structure=[256, 256, 1]) # b x 1
@@ -61,12 +58,13 @@ class GAN(Model):
     # --------------------------------------------------------------------------
     def input_graph(self):
         print('\tinput_graph')
-        inputs = tf.placeholder(tf.float32, shape=[self.batch_size//2, self.input_dim], name='inputs')
+        inputs = tf.placeholder(tf.float32, shape=[None, self.input_dim], name='inputs')
+        z = tf.placeholder(tf.float32, shape=[None, self.z_dim], name='z')
         keep_prob = tf.placeholder(tf.float32, name='keep_prob')
         weight_decay = tf.placeholder(tf.float32, name='weight_decay')
         learn_rate = tf.placeholder(tf.float32, name='learn_rate')
         is_training = tf.placeholder(tf.bool, name='is_training')
-        return inputs, keep_prob, weight_decay, learn_rate, is_training
+        return inputs, z, keep_prob, weight_decay, learn_rate, is_training
 
     # --------------------------------------------------------------------------
     def generator(self, z, structure):
@@ -81,7 +79,7 @@ class GAN(Model):
             z = tf.layers.dense(inputs=z, units=self.input_dim, activation=tf.sigmoid,
                 kernel_initializer=tf.contrib.layers.xavier_initializer())
 
-        images = tf.reshape(z, [self.batch_size//2, 28, 28, 1])
+        images = tf.reshape(z, [-1, 28, 28, 1])
         self.gen_sum.append(tf.summary.image('generated img', images, max_outputs=100))
         return z
 
@@ -104,14 +102,8 @@ class GAN(Model):
     # --------------------------------------------------------------------------
     def get_discriminator_cost(self, logits):
         print('get_discriminator_cost')
-        ones = tf.constant(value=1., shape=[self.batch_size//2,1])
-        zeros = tf.constant(value=0., shape=[self.batch_size//2,1])
-        true_labels = tf.concat([ones, zeros], axis=0)
-
-        cost = tf.nn.sigmoid_cross_entropy_with_logits(labels=true_labels,
-            logits=logits)
-
-        cost = tf.reduce_mean(cost)
+        true, fake = tf.split(logits, num_or_size_splits=2, axis=0)
+        cost = tf.reduce_mean(true - fake)
         self.disc_sum.append(tf.summary.scalar('discriminator cost', cost))
         return cost
 
@@ -119,12 +111,8 @@ class GAN(Model):
     # --------------------------------------------------------------------------
     def get_generator_cost(self, logits):
         print('get_generator_cost')
-        true_labels = tf.constant(value=1., shape=[self.batch_size//2,1])
-
-        cost = tf.nn.sigmoid_cross_entropy_with_logits(labels=true_labels,
-            logits=logits[self.batch_size//2:,:])
-
-        cost = tf.reduce_mean(cost)
+        _, fake = tf.split(logits, num_or_size_splits=2, axis=0)
+        cost = tf.reduce_mean(fake)
         self.gen_sum.append(tf.summary.scalar('generator cost', cost))
         return cost
 
@@ -137,6 +125,7 @@ class GAN(Model):
             disc_list_grad = disc_optimizer.compute_gradients(disc_cost, 
                 var_list=tf.get_collection('trainable_variables',
                     scope=self.scope+'/discriminator'))
+            disc_list_grad = [(tf.clip_by_value(g, -0.05, 0.05),n) for g,n in disc_list_grad]
             disc_grad = tf.reduce_mean([tf.reduce_mean(tf.abs(t))\
                 for t,n in disc_list_grad if t is not None])
             self.disc_sum.append(tf.summary.scalar('disc_grad', disc_grad))
@@ -157,7 +146,7 @@ class GAN(Model):
 
 
     #---------------------------------------------------------------------------
-    def train_(self, data_loader,  keep_prob, weight_decay,  learn_rate_start,
+    def train_(self, data_loader, batch_size, n_critic, keep_prob, weight_decay,  learn_rate_start,
         learn_rate_end, n_iter, save_model_every_n_iter, path_to_model):
         print('\n\n\n\t----==== Training ====----')
             
@@ -165,15 +154,18 @@ class GAN(Model):
         for current_iter in tqdm(range(n_iter)):
             learn_rate = self.scaled_exp_decay(learn_rate_start, learn_rate_end,
                 n_iter, current_iter)
-            batch = data_loader.next_batch(self.batch_size//2)
+            batch = data_loader.next_batch(batch_size)
+            z = np.random.normal(size=[batch_size, self.z_dim])
             feedDict = {self.inputs : batch[0],
+                        self.z : z,
                         self.keep_prob : keep_prob,
                         self.weight_decay : weight_decay,
                         self.learn_rate : learn_rate,
                         self.is_training : True}
-                        
-            _, summary = self.sess.run([self.train_disc, self.disc_merge],
-                feed_dict=feedDict)
+            
+            for _ in range(n_critic):
+                self.sess.run(self.train_disc, feed_dict=feedDict)
+            summary = self.sess.run(self.disc_merge, feed_dict=feedDict)
             self.train_writer.add_summary(summary, current_iter)
 
             _, summary = self.sess.run([self.train_gen, self.gen_merge],
@@ -194,5 +186,6 @@ class GAN(Model):
 
     #---------------------------------------------------------------------------
     def sample(self):
-        samples = self.sess.run(self.x_fake, {self.is_training:False})
-        return samples[:100,...]
+        z = np.random.normal(size=[100, self.z_dim])
+        samples = self.sess.run(self.x_fake, {self.is_training:False, self.z:z})
+        return samples
