@@ -103,7 +103,7 @@ class GAN(Model):
             x_fake = tf.sigmoid(z[:, :self.input_dim])
             logits_fake = z[:, self.input_dim:]
         images = tf.reshape(x_fake, [-1, 28, 28, 1])
-        self.gen_sum.append(tf.summary.image('generated img', images, max_outputs=100))
+        self.gen_sum.append(tf.summary.image('generated img', images, max_outputs=12))
         return x_fake, logits_fake
 
 
@@ -289,7 +289,7 @@ class GAN(Model):
             self.sess.run(self.train_disc, feed_dict=feedDict)
             self.sess.run(self.train_gen, feed_dict=feedDict)
             self.sess.run(self.train_class, feed_dict=feedDict)
-            if current_iter%50 == 0:
+            if current_iter%200 == 0:
                 summary = self.sess.run(self.disc_merge, feed_dict=feedDict)
                 self.train_writer.add_summary(summary, current_iter)
                 summary = self.sess.run(self.gen_merge, feed_dict=feedDict)
