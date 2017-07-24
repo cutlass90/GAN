@@ -21,29 +21,31 @@ class GAN(Model):
         self.scope = scope
 
         self.disc_sum, self.gen_sum, self.class_sum = [], [], []
-        with tf.variable_scope(scope):
-            self.create_graph()
-        # [print(i) for i in tf.trainable_variables()]
-        if do_train:
-            self.discriminator_cost = self.get_discriminator_cost(self.logits_critic_r,
-                self.logits_critic_f)
-            self.generator_cost = self.get_generator_cost(self.logits_class_f,
-                self.logits_critic_f, self.logits_gen)
-            self.classifier_cost = self.get_classifier_cost(self.labels,
-                self.logits_class_r)
-            
-            self.train_disc, self.train_gen, self.train_class = self.create_optimizer_graph(
-                self.discriminator_cost, self.generator_cost, self.classifier_cost)
-            self.train_writer, self.test_writer = self.create_summary_writers()
-            self.disc_merge = tf.summary.merge(self.disc_sum)
-            self.gen_merge = tf.summary.merge(self.gen_sum)
-            self.class_merge = tf.summary.merge(self.class_sum)
+        self.graph = tf.Graph()
+        with self.graph.as_default():
+            with tf.variable_scope(scope):
+                self.create_graph()
+            # [print(i) for i in tf.trainable_variables()]
+            if do_train:
+                self.discriminator_cost = self.get_discriminator_cost(self.logits_critic_r,
+                    self.logits_critic_f)
+                self.generator_cost = self.get_generator_cost(self.logits_class_f,
+                    self.logits_critic_f, self.logits_gen)
+                self.classifier_cost = self.get_classifier_cost(self.labels,
+                    self.logits_class_r)
+                
+                self.train_disc, self.train_gen, self.train_class = self.create_optimizer_graph(
+                    self.discriminator_cost, self.generator_cost, self.classifier_cost)
+                self.train_writer, self.test_writer = self.create_summary_writers()
+                self.disc_merge = tf.summary.merge(self.disc_sum)
+                self.gen_merge = tf.summary.merge(self.gen_sum)
+                self.class_merge = tf.summary.merge(self.class_sum)
 
-        self.sess = self.create_session()
-        self.train_writer.add_graph(tf.get_default_graph())
-        self.sess.run(tf.global_variables_initializer())
-        self.stored_vars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope=scope)
-        self.saver = tf.train.Saver(self.stored_vars, max_to_keep=1000)
+            self.sess = self.create_session()
+            # self.train_writer.add_graph(tf.get_default_graph())
+            self.sess.run(tf.global_variables_initializer())
+            self.stored_vars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope=scope)
+            self.saver = tf.train.Saver(self.stored_vars, max_to_keep=1000)
 
 
     # --------------------------------------------------------------------------
@@ -59,6 +61,8 @@ class GAN(Model):
 
         self.x_fake, self.logits_gen = self.generator(z=self.z,
             structure=[256, 256, self.input_dim+self.n_classes])
+        self.gen_pred = tf.reduce_max(self.logits_gen, axis=1)
+        self.gen_pred = tf.cast(tf.equal(self.logits_gen, tf.expand_dims(self.gen_pred, 1)), tf.float32)
 
         x = tf.concat((self.inputs, self.x_fake), axis=0)
 
@@ -325,4 +329,10 @@ class GAN(Model):
         z = np.random.normal(size=[100, self.z_dim])
         samples = self.sess.run(self.x_fake, {self.is_training:False, self.z:z})
         return samples
-        
+    
+
+    #---------------------------------------------------------------------------
+    def sample_data(self, batch_size):
+        z = np.random.normal(size=[batch_size, self.z_dim])
+        images, labels = self.sess.run([self.x_fake, self.gen_pred], {self.is_training:False, self.z:z})
+        return images, labels
