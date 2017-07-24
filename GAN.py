@@ -324,6 +324,129 @@ class GAN(Model):
         print("Training time --- %s seconds ---" % (time.time() - start_time))
 
 
+    # --------------------------------------------------------------------------
+    def save_gen_summaries(self, inputs, keep_prob, weight_decay, batch_size, is_training,
+        writer, it):
+        # inputs is need only for batch norm
+        z = np.random.normal(size=[batch_size, self.z_dim])
+        feedDict = {self.inputs : inputs,
+                    self.z :z,
+                    self.keep_prob : keep_prob,
+                    self.weight_decay : weight_decay,
+                    self.is_training : True}
+        summary = self.sess.run(self.gen_merge, feed_dict=feedDict)
+        writer.add_summary(summary, it)
+
+
+    # --------------------------------------------------------------------------
+    def save_disc_summaries(self, inputs, keep_prob, weight_decay, is_training,
+        writer, it):
+        batch_size = len(inputs)
+        z = np.random.normal(size=[batch_size, self.z_dim])
+        feedDict = {self.inputs : inputs,
+                    self.z : z,
+                    self.keep_prob : keep_prob,
+                    self.weight_decay : weight_decay,
+                    self.is_training : True}
+        summary = self.sess.run(self.disc_merge, feed_dict=feedDict)
+        writer.add_summary(summary, it)
+
+
+    # --------------------------------------------------------------------------
+    def save_class_summaries(self, inputs, labels, keep_prob, weight_decay, is_training,
+        writer, it):
+        batch_size = len(inputs)
+        feedDict = {self.inputs : inputs,
+                    self.labels : labels,
+                    self.z : np.random.normal(size=[batch_size, self.z_dim]),
+                    self.keep_prob : keep_prob,
+                    self.weight_decay : weight_decay,
+                    self.is_training : True}
+        summary = self.sess.run(self.class_merge, feed_dict=feedDict)
+        writer.add_summary(summary, it)
+
+
+    # --------------------------------------------------------------------------
+    def train_gen_step(self, inputs, keep_prob, weight_decay, batch_size, learn_rate):
+        z = np.random.normal(size=[batch_size, self.z_dim])
+        # inputs is need only for batch norm
+        feedDict = {self.inputs : inputs,
+                    self.z :z,
+                    self.keep_prob : keep_prob,
+                    self.weight_decay : weight_decay,
+                    self.learn_rate : learn_rate,
+                    self.is_training : True}
+        self.sess.run(self.train_gen, feed_dict=feedDict)
+
+
+    # --------------------------------------------------------------------------
+    def train_disc_step(self, inputs, keep_prob, weight_decay, learn_rate):
+        batch_size = len(inputs)
+        z = np.random.normal(size=[batch_size, self.z_dim])
+        feedDict = {self.inputs : inputs,
+                    self.z : z,
+                    self.keep_prob : keep_prob,
+                    self.weight_decay : weight_decay,
+                    self.learn_rate : learn_rate,
+                    self.is_training : True}
+        self.sess.run(self.train_disc, feed_dict=feedDict)
+
+
+    # --------------------------------------------------------------------------
+    def train_class_step(self, inputs, labels, keep_prob, weight_decay, learn_rate):
+        batch_size = len(inputs)
+        feedDict = {self.inputs : inputs,
+                    self.labels : labels,
+                    self.z : np.random.normal(size=[batch_size, self.z_dim]),
+                    self.keep_prob : keep_prob,
+                    self.weight_decay : weight_decay,
+                    self.learn_rate : learn_rate,
+                    self.is_training : True}
+        self.sess.run(self.train_class, feed_dict=feedDict)
+
+
+    # --------------------------------------------------------------------------
+    def train_model(self, data_loader, batch_size, keep_prob, weight_decay,  learn_rate_start,
+        learn_rate_end, n_iter, save_model_every_n_iter, path_to_model):
+
+        start_time = time.time()
+        for current_iter in tqdm(range(n_iter)):
+            learn_rate = self.scaled_exp_decay(learn_rate_start, learn_rate_end,
+                n_iter, current_iter)
+            batch = data_loader.train.next_batch(batch_size)
+            z = np.random.normal(size=[batch_size, self.z_dim])
+            self.train_disc_step(batch[0], keep_prob, weight_decay, learn_rate)
+            self.train_gen_step(batch[0], keep_prob, weight_decay, batch_size, learn_rate)
+            self.train_class_step(batch[0], batch[1], keep_prob, weight_decay, learn_rate)
+
+            if current_iter%200 == 0:
+                self.save_disc_summaries(batch[0], keep_prob, weight_decay, True,
+                    self.train_writer, current_iter)
+                self.save_gen_summaries(batch[0], keep_prob, weight_decay, batch_size, True,
+                    self.train_writer, current_iter)
+                self.save_class_summaries(batch[0], batch[1], keep_prob, weight_decay,
+                    True, self.train_writer, current_iter)
+
+                batch = data_loader.test.next_batch(batch_size)
+                self.save_disc_summaries(batch[0], keep_prob, weight_decay, False,
+                    self.test_writer, current_iter)
+                self.save_gen_summaries(batch[0], keep_prob, weight_decay, batch_size, False,
+                    self.test_writer, current_iter)
+                self.save_class_summaries(batch[0], batch[1], keep_prob, weight_decay,
+                    False, self.test_writer, current_iter)
+
+            if (current_iter+1)%5000 == 0:
+                samples = self.sample()
+                plot_samples(samples, current_iter)
+
+            if (current_iter+1) % save_model_every_n_iter == 0:
+                self.save_model(path=path_to_model, sess=self.sess, step=current_iter+1)
+
+        self.save_model(path=path_to_model, sess=self.sess, step=current_iter+1)
+        print('\nTrain finished!')
+        print("Training time --- %s seconds ---" % (time.time() - start_time))
+
+
     #---------------------------------------------------------------------------
     def sample(self):
         z = np.random.normal(size=[100, self.z_dim])
