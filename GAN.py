@@ -118,8 +118,8 @@ class GAN(Model):
             for i, layer in enumerate(structure[:-1]):
                 x = tf.layers.dense(inputs=x, units=layer, activation=None,
                     kernel_initializer=tf.contrib.layers.xavier_initializer())
-                x = tf.contrib.layers.batch_norm(inputs=x, scale=True,
-                    updates_collections=None, is_training=self.is_training)
+                # x = tf.contrib.layers.batch_norm(inputs=x, scale=True,
+                #     updates_collections=None, is_training=self.is_training)
                 x = tf.nn.elu(x)
             x = tf.layers.dense(inputs=x, units=structure[-1], activation=None,
                 kernel_initializer=tf.contrib.layers.xavier_initializer())
