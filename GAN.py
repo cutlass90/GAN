@@ -64,17 +64,15 @@ class GAN(Model):
         self.gen_pred = tf.reduce_max(self.logits_gen, axis=1)
         self.gen_pred = tf.cast(tf.equal(self.logits_gen, tf.expand_dims(self.gen_pred, 1)), tf.float32)
 
-        x = tf.concat((self.inputs, self.x_fake), axis=0)
+        self.logits_critic_r = self.discriminator(self.inputs, structure=[256, 256, 1],
+            reuse=False) # b x 1
+        self.logits_critic_f = self.discriminator(self.x_fake, structure=[256, 256, 1],
+            reuse=True) # b x 1
 
-        logits_critic = self.discriminator(x,
-            structure=[256, 256, 1]) # b x 1
-        self.logits_critic_r, self.logits_critic_f = tf.split(logits_critic,
-            num_or_size_splits=2, axis=0)
-
-        logits_class = self.classifier(x,
-            structure=[256, 256, self.n_classes]) # b x 10
-        self.logits_class_r, self.logits_class_f = tf.split(logits_class,
-            num_or_size_splits=2, axis=0)
+        self.logits_class_r = self.classifier(self.inputs,
+            structure=[256, 256, self.n_classes], reuse=False) # b x 10
+        self.logits_class_f = self.classifier(self.x_fake,
+            structure=[256, 256, self.n_classes], reuse=True) # b x 10
 
         print('Done!')
 
@@ -112,32 +110,36 @@ class GAN(Model):
 
 
     # --------------------------------------------------------------------------
-    def discriminator(self, x, structure):
+    def discriminator(self, x, structure, reuse):
         print('\tdiscriminator')
         with tf.variable_scope('discriminator'):
             for i, layer in enumerate(structure[:-1]):
                 x = tf.layers.dense(inputs=x, units=layer, activation=None,
-                    kernel_initializer=tf.contrib.layers.xavier_initializer())
-                x = tf.contrib.layers.batch_norm(inputs=x, scale=True,
-                    updates_collections=None, is_training=self.is_training)
+                    kernel_initializer=tf.contrib.layers.xavier_initializer(),
+                    reuse=reuse, name='disc'+str(i))
+                # x = tf.contrib.layers.batch_norm(inputs=x, scale=True,
+                #     updates_collections=None, is_training=self.is_training)
                 x = tf.nn.elu(x)
             x = tf.layers.dense(inputs=x, units=structure[-1], activation=None,
-                kernel_initializer=tf.contrib.layers.xavier_initializer())
+                kernel_initializer=tf.contrib.layers.xavier_initializer(),
+                reuse=reuse, name='disc_last')
         return x
 
 
     # --------------------------------------------------------------------------
-    def classifier(self, x, structure):
+    def classifier(self, x, structure, reuse):
         print('\tclassifier')
         with tf.variable_scope('classifier'):
             for i, layer in enumerate(structure[:-1]):
                 x = tf.layers.dense(inputs=x, units=layer, activation=None,
-                    kernel_initializer=tf.contrib.layers.xavier_initializer())
-                x = tf.contrib.layers.batch_norm(inputs=x, scale=True,
-                    updates_collections=None, is_training=self.is_training)
+                    kernel_initializer=tf.contrib.layers.xavier_initializer(),
+                    reuse=reuse, name='class'+str(i))
+                # x = tf.contrib.layers.batch_norm(inputs=x, scale=True,
+                #     updates_collections=None, is_training=self.is_training)
                 x = tf.nn.elu(x)
             x = tf.layers.dense(inputs=x, units=structure[-1], activation=None,
-                kernel_initializer=tf.contrib.layers.xavier_initializer())
+                kernel_initializer=tf.contrib.layers.xavier_initializer(),
+                reuse=reuse, name='class_last')
         return x
 
 
@@ -325,53 +327,9 @@ class GAN(Model):
 
 
     # --------------------------------------------------------------------------
-    def save_gen_summaries(self, inputs, keep_prob, weight_decay, batch_size, is_training,
-        writer, it):
-        # inputs is need only for batch norm
+    def train_gen_step(self, keep_prob, weight_decay, batch_size, learn_rate):
         z = np.random.normal(size=[batch_size, self.z_dim])
-        feedDict = {self.inputs : inputs,
-                    self.z :z,
-                    self.keep_prob : keep_prob,
-                    self.weight_decay : weight_decay,
-                    self.is_training : True}
-        summary = self.sess.run(self.gen_merge, feed_dict=feedDict)
-        writer.add_summary(summary, it)
-
-
-    # --------------------------------------------------------------------------
-    def save_disc_summaries(self, inputs, keep_prob, weight_decay, is_training,
-        writer, it):
-        batch_size = len(inputs)
-        z = np.random.normal(size=[batch_size, self.z_dim])
-        feedDict = {self.inputs : inputs,
-                    self.z : z,
-                    self.keep_prob : keep_prob,
-                    self.weight_decay : weight_decay,
-                    self.is_training : True}
-        summary = self.sess.run(self.disc_merge, feed_dict=feedDict)
-        writer.add_summary(summary, it)
-
-
-    # --------------------------------------------------------------------------
-    def save_class_summaries(self, inputs, labels, keep_prob, weight_decay, is_training,
-        writer, it):
-        batch_size = len(inputs)
-        feedDict = {self.inputs : inputs,
-                    self.labels : labels,
-                    self.z : np.random.normal(size=[batch_size, self.z_dim]),
-                    self.keep_prob : keep_prob,
-                    self.weight_decay : weight_decay,
-                    self.is_training : True}
-        summary = self.sess.run(self.class_merge, feed_dict=feedDict)
-        writer.add_summary(summary, it)
-
-
-    # --------------------------------------------------------------------------
-    def train_gen_step(self, inputs, keep_prob, weight_decay, batch_size, learn_rate):
-        z = np.random.normal(size=[batch_size, self.z_dim])
-        # inputs is need only for batch norm
-        feedDict = {self.inputs : inputs,
-                    self.z :z,
+        feedDict = {self.z :z,
                     self.keep_prob : keep_prob,
                     self.weight_decay : weight_decay,
                     self.learn_rate : learn_rate,
@@ -397,12 +355,50 @@ class GAN(Model):
         batch_size = len(inputs)
         feedDict = {self.inputs : inputs,
                     self.labels : labels,
-                    self.z : np.random.normal(size=[batch_size, self.z_dim]),
                     self.keep_prob : keep_prob,
                     self.weight_decay : weight_decay,
                     self.learn_rate : learn_rate,
                     self.is_training : True}
         self.sess.run(self.train_class, feed_dict=feedDict)
+
+
+    # --------------------------------------------------------------------------
+    def save_gen_summaries(self, keep_prob, weight_decay, batch_size, is_training,
+        writer, it):
+        z = np.random.normal(size=[batch_size, self.z_dim])
+        feedDict = {self.z :z,
+                    self.keep_prob : keep_prob,
+                    self.weight_decay : weight_decay,
+                    self.is_training : is_training}
+        summary = self.sess.run(self.gen_merge, feed_dict=feedDict)
+        writer.add_summary(summary, it)
+
+
+    # --------------------------------------------------------------------------
+    def save_disc_summaries(self, inputs, keep_prob, weight_decay, is_training,
+        writer, it):
+        batch_size = len(inputs)
+        z = np.random.normal(size=[batch_size, self.z_dim])
+        feedDict = {self.inputs : inputs,
+                    self.z : z,
+                    self.keep_prob : keep_prob,
+                    self.weight_decay : weight_decay,
+                    self.is_training : is_training}
+        summary = self.sess.run(self.disc_merge, feed_dict=feedDict)
+        writer.add_summary(summary, it)
+
+
+    # --------------------------------------------------------------------------
+    def save_class_summaries(self, inputs, labels, keep_prob, weight_decay, is_training,
+        writer, it):
+        batch_size = len(inputs)
+        feedDict = {self.inputs : inputs,
+                    self.labels : labels,
+                    self.keep_prob : keep_prob,
+                    self.weight_decay : weight_decay,
+                    self.is_training : is_training}
+        summary = self.sess.run(self.class_merge, feed_dict=feedDict)
+        writer.add_summary(summary, it)
 
 
     # --------------------------------------------------------------------------
@@ -415,13 +411,13 @@ class GAN(Model):
                 n_iter, current_iter)
             batch = data_loader.train.next_batch(batch_size)
             self.train_disc_step(batch[0], keep_prob, weight_decay, learn_rate)
-            self.train_gen_step(batch[0], keep_prob, weight_decay, batch_size, learn_rate)
+            self.train_gen_step(keep_prob, weight_decay, batch_size, learn_rate)
             self.train_class_step(batch[0], batch[1], keep_prob, weight_decay, learn_rate)
 
             if current_iter%200 == 0:
                 self.save_disc_summaries(batch[0], keep_prob, weight_decay, True,
                     self.train_writer, current_iter)
-                self.save_gen_summaries(batch[0], keep_prob, weight_decay, batch_size, True,
+                self.save_gen_summaries(keep_prob, weight_decay, batch_size, True,
                     self.train_writer, current_iter)
                 self.save_class_summaries(batch[0], batch[1], keep_prob, weight_decay,
                     True, self.train_writer, current_iter)
@@ -429,7 +425,7 @@ class GAN(Model):
                 batch = data_loader.test.next_batch(batch_size)
                 self.save_disc_summaries(batch[0], keep_prob, weight_decay, False,
                     self.test_writer, current_iter)
-                self.save_gen_summaries(batch[0], keep_prob, weight_decay, batch_size, False,
+                self.save_gen_summaries(keep_prob, weight_decay, batch_size, False,
                     self.test_writer, current_iter)
                 self.save_class_summaries(batch[0], batch[1], keep_prob, weight_decay,
                     False, self.test_writer, current_iter)
@@ -444,7 +440,6 @@ class GAN(Model):
         self.save_model(path=path_to_model, sess=self.sess, step=current_iter+1)
         print('\nTrain finished!')
         print("Training time --- %s seconds ---" % (time.time() - start_time))
-
 
     #---------------------------------------------------------------------------
     def sample(self):
