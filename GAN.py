@@ -414,7 +414,6 @@ class GAN(Model):
             learn_rate = self.scaled_exp_decay(learn_rate_start, learn_rate_end,
                 n_iter, current_iter)
             batch = data_loader.train.next_batch(batch_size)
-            z = np.random.normal(size=[batch_size, self.z_dim])
             self.train_disc_step(batch[0], keep_prob, weight_decay, learn_rate)
             self.train_gen_step(batch[0], keep_prob, weight_decay, batch_size, learn_rate)
             self.train_class_step(batch[0], batch[1], keep_prob, weight_decay, learn_rate)
