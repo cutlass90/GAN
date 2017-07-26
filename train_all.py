@@ -15,10 +15,10 @@ class ImageProvider:
         return self.mnist.train.next_batch(batch_size)[0]
 
 
-labeled_size = 128
-batch_size = 128
+labeled_size = 100
+batch_size = 100
 weight_decay = 2e-2
-n_iter = 500000
+n_iter = 200000
 learn_rate_start = 1e-3
 learn_rate_end = 1e-4
 keep_prob = 1
@@ -34,7 +34,7 @@ labeled_data_loader = mnist.validation
 print('total number of labeled data', labeled_data_loader.num_examples)
 l = labeled_data_loader.labels
 print('Distribution of labeled data:')
-[print('class '+str(i)) for i in np.sum(l,0)]
+[print('class_{0} = {1}'.format(i,v)) for i,v in enumerate(np.sum(l,0))]
 
 test_data_loader = mnist.test
 print('total number of test data', test_data_loader.num_examples)

@@ -6,6 +6,7 @@ import math
 import numpy as np
 import tensorflow as tf
 
+
 class Model(object):
     """Abstract class representing a tensorflow scikit-learn-like model.
     
@@ -36,9 +37,9 @@ class Model(object):
         if load_path is None:
             print('Can not load model, start new train')
             raise FileNotFoundError
-        print('try to load {}'.format(load_path))
+        print('try to load {} ...'.format(load_path), end='')
         self.saver.restore(self.sess, load_path)
-        print("Model restored from file %s" % load_path)
+        print('Done!')
 
 
     # --------------------------------------------------------------------------
@@ -78,3 +79,39 @@ class Model(object):
         a = start*math.pow(1, b)
         learn_rate = a/math.pow((current_iter+1), b)
         return learn_rate
+
+
+    # --------------------------------------------------------------------------
+    def get_metrics(self, labels, logits):
+        """ Compute metrics 
+
+            Args:
+            labels: 2D tensor with ground true data
+            logits: 2D tensor
+            
+            Return: 4-element tuple, where each element is a list, contained
+             metric for each class
+            (precisseion, recall, f1, accuracy)
+        """
+        pred = tf.reduce_max(logits, axis=1)
+        pred = tf.cast(tf.equal(logits, tf.expand_dims(pred, 1)), tf.float32)
+        n_classes = labels.get_shape().as_list()[1]
+        precision, recall, f1, accuracy = [], [], [], []
+        for i in range(n_classes):
+            y = labels[:,i]
+            y_ = pred[:,i]
+            tp = tf.reduce_sum(y*y_)
+            tn = tf.reduce_sum((1-y)*(1-y_))
+            fp = tf.reduce_sum((1-y)*y_)
+            fn = tf.reduce_sum(y*(1-y_))
+            pr = tp/(tp+fp+1e-5)
+            re = tp/(tp+fn+1e-5)
+            precision.append(pr)
+            recall.append(re)
+            f1.append(2*pr*re/(pr+re+1e-5))
+            accuracy.append((tp+tn)/(tp+tn+fp+fn))
+
+        return (precision, recall, f1, accuracy)
+            
+
+# test

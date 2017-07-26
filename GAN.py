@@ -36,7 +36,7 @@ class GAN(Model):
                 
                 self.train_disc, self.train_gen, self.train_class = self.create_optimizer_graph(
                     self.discriminator_cost, self.generator_cost, self.classifier_cost)
-                self.train_writer, self.test_writer = self.create_summary_writers()
+                self.train_writer, self.test_writer = self.create_summary_writers('summary/GAN')
                 self.disc_merge = tf.summary.merge(self.disc_sum)
                 self.gen_merge = tf.summary.merge(self.gen_sum)
                 self.class_merge = tf.summary.merge(self.class_sum)
@@ -168,24 +168,14 @@ class GAN(Model):
         loss_class_r = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(
             labels=labels, logits=logits_class_r))  # b x 10
 
-        with tf.name_scope('classifier'):
+        with tf.name_scope('GANs_classifier'):
             self.class_sum.append(tf.summary.scalar('loss_class_r', loss_class_r))
-            pred = tf.reduce_max(logits_class_r, axis=1)
-            pred = tf.cast(tf.equal(logits_class_r, tf.expand_dims(pred, 1)), tf.float32)
+            precision, recall, f1, accuracy = self.get_metrics(labels, logits_class_r)
             for i in range(self.n_classes):
-                y = labels[:,i]
-                y_ = pred[:,i]
-                tp = tf.reduce_sum(y*y_)
-                tn = tf.reduce_sum((1-y)*(1-y_))
-                fp = tf.reduce_sum((1-y)*y_)
-                fn = tf.reduce_sum(y*(1-y_))
-                pr = tp/(tp+fp+1e-5)
-                re = tp/(tp+fn+1e-5)
-                f1 = 2*pr*re/(pr+re+1e-5)
-                with tf.name_scope('Class_{}'.format(i)):
-                    self.class_sum.append(tf.summary.scalar('Class {} precision'.format(i), pr))
-                    self.class_sum.append(tf.summary.scalar('Class {} recall'.format(i), re))
-                    self.class_sum.append(tf.summary.scalar('Class {} f1 score'.format(i), f1))
+                self.class_sum.append(tf.summary.scalar('Class {} f1 score'.format(i), f1[i]))
+            self.class_sum.append(tf.summary.scalar('Accuracy',
+                tf.add_n(accuracy)/self.n_classes))
+
         return loss_class_r
 
 
@@ -200,22 +190,26 @@ class GAN(Model):
         """
         print('get_generator_cost')
 
+        # classification loss
         labels = tf.nn.softmax(logits_class_f)
         loss_class_f = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(
             labels=labels, logits=logits_gen))
 
+        # Adversarial loss
         ones = tf.ones(shape=tf.shape(logits_critic_f))
         loss_critic_f = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(
             labels=ones, logits=logits_critic_f))
 
-        class_distrib = tf.reduce_mean(tf.nn.softmax(logits_class_f),0) # 10
+        # Distribution loss
+        class_distrib = tf.reduce_mean(tf.nn.softmax(logits_gen),0) # 10
         # class_distrib = tf.Print(class_distrib, [class_distrib], summarize=100)
         target_distrib=tf.constant(value=1./self.n_classes, shape=[self.n_classes],
                 dtype=tf.float32)
-        loss_distrib = -tf.reduce_sum(target_distrib*tf.log(class_distrib+1e-6))
+        loss_distrib = -10*tf.reduce_sum(target_distrib*tf.log(class_distrib+1e-6))
             
-        cost = loss_critic_f + loss_class_f + 10*loss_distrib
+        cost = loss_critic_f + loss_class_f + loss_distrib
 
+        #summary
         class_balance_f = tf.argmax(logits_gen, axis=1)
         class_balance_r = tf.argmax(logits_class_f, axis=1)
         self.gen_sum.append(tf.summary.histogram('class_balance_generator', class_balance_f))
@@ -224,23 +218,13 @@ class GAN(Model):
             self.gen_sum.append(tf.summary.scalar('loss_class_f', loss_class_f))
             self.gen_sum.append(tf.summary.scalar('loss_critic_f', loss_critic_f))
             self.gen_sum.append(tf.summary.scalar('loss_distrib', loss_distrib))
-
-            pred = tf.reduce_max(logits_gen, axis=1)
-            pred = tf.cast(tf.equal(logits_gen, tf.expand_dims(pred, 1)), tf.float32)
+            labels = tf.reduce_max(logits_class_f, axis=1)
+            labels = tf.cast(tf.equal(logits_class_f, tf.expand_dims(labels, 1)), tf.float32)
+            precision, recall, f1, accuracy = self.get_metrics(labels, logits_gen)
             for i in range(self.n_classes):
-                y = labels[:,i]
-                y_ = pred[:,i]
-                tp = tf.reduce_sum(y*y_)
-                tn = tf.reduce_sum((1-y)*(1-y_))
-                fp = tf.reduce_sum((1-y)*y_)
-                fn = tf.reduce_sum(y*(1-y_))
-                pr = tp/(tp+fp+1e-5)
-                re = tp/(tp+fn+1e-5)
-                f1 = 2*pr*re/(pr+re+1e-5)
-                with tf.name_scope('Class_{}'.format(i)):
-                    self.disc_sum.append(tf.summary.scalar('Class {} precision'.format(i), pr))
-                    self.disc_sum.append(tf.summary.scalar('Class {} recall'.format(i), re))
-                    self.disc_sum.append(tf.summary.scalar('Class {} f1 score'.format(i), f1))
+                self.gen_sum.append(tf.summary.scalar('Class {} f1 score'.format(i), f1[i]))
+            self.gen_sum.append(tf.summary.scalar('Accuracy',
+                tf.add_n(accuracy)/self.n_classes))
         return cost
 
 

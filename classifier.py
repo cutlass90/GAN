@@ -24,7 +24,7 @@ class Classifier(Model):
                 self.cost = self.create_cost_graph(self.labels, self.logits)
                 self.create_summary(self.labels, self.logits)
                 self.train = self.create_optimizer_graph(self.cost)
-                self.train_writer, self.test_writer = self.create_summary_writers()
+                self.train_writer, self.test_writer = self.create_summary_writers('summary/class')
                 self.merged = tf.summary.merge(self.summary)
 
             self.sess = self.create_session()
@@ -40,6 +40,7 @@ class Classifier(Model):
         self.inputs,\
         self.labels,\
         self.weight_decay,\
+        self.keep_prob,\
         self.learn_rate,\
         self.is_training = self.input_graph() # inputs shape is # b*n_f x h1 x c1
 
@@ -63,9 +64,11 @@ class Classifier(Model):
 
         learn_rate = tf.placeholder(tf.float32, name='learn_rate')
 
+        keep_prob = tf.placeholder(tf.bool, name='keep_prob')
+
         is_training = tf.placeholder(tf.bool, name='is_training')
 
-        return inputs, labels, weight_decay, learn_rate, is_training
+        return inputs, labels, weight_decay, learn_rate, keep_prob, is_training
 
     # --------------------------------------------------------------------------
     def dense_block(self, inputs, structure):
@@ -76,6 +79,7 @@ class Classifier(Model):
             inputs = tf.contrib.layers.batch_norm(inputs=inputs, scale=True,
                 updates_collections=None, is_training=self.is_training)
             inputs = tf.nn.relu(inputs)
+            inputs = tf.nn.dropout(inputs, self.keep_prob)
         out = tf.layers.dense(inputs=inputs, units=structure[-1], activation=None,
             kernel_initializer=tf.contrib.layers.xavier_initializer())
         return out
@@ -94,24 +98,14 @@ class Classifier(Model):
 
     # --------------------------------------------------------------------------
     def create_summary(self, labels, logits):
-        self.summary.append(tf.summary.scalar('cross_entropy', self.cross_entropy))
-        self.summary.append(tf.summary.scalar('L2 loss', self.L2_loss))
-        pred = tf.reduce_max(logits, axis=1)
-        pred = tf.cast(tf.equal(logits, tf.expand_dims(pred, 1)), tf.float32)
-        for i in range(self.n_classes):
-            y = labels[:,i]
-            y_ = pred[:,i]
-            tp = tf.reduce_sum(y*y_)
-            tn = tf.reduce_sum((1-y)*(1-y_))
-            fp = tf.reduce_sum((1-y)*y_)
-            fn = tf.reduce_sum(y*(1-y_))
-            pr = tp/(tp+fp+1e-5)
-            re = tp/(tp+fn+1e-5)
-            f1 = 2*pr*re/(pr+re+1e-5)
-            with tf.name_scope('Class_{}'.format(i)):
-                self.summary.append(tf.summary.scalar('Class {} precision'.format(i), pr))
-                self.summary.append(tf.summary.scalar('Class {} recall'.format(i), re))
-                self.summary.append(tf.summary.scalar('Class {} f1 score'.format(i), f1))
+        with tf.name_scope('ext_classifier'):
+            self.summary.append(tf.summary.scalar('cross_entropy', self.cross_entropy))
+            self.summary.append(tf.summary.scalar('L2 loss', self.L2_loss))
+            precision, recall, f1, accuracy = self.get_metrics(labels, logits)
+            for i in range(self.n_classes):
+                self.summary.append(tf.summary.scalar('Class {} f1 score'.format(i), f1[i]))
+            self.summary.append(tf.summary.scalar('Accuracy',
+                tf.add_n(accuracy)/self.n_classes))
 
 
     # --------------------------------------------------------------------------
@@ -125,7 +119,7 @@ class Classifier(Model):
 
     # --------------------------------------------------------------------------
     def train_(self, data_loader, batch_size, weight_decay,  learn_rate_start,
-        learn_rate_end, n_iter, save_model_every_n_iter, path_to_model):
+        learn_rate_end, kepp_prob, n_iter, save_model_every_n_iter, path_to_model):
         """
         Args:
             noise_range: list, first item - std_start, second item - std_end
@@ -143,6 +137,7 @@ class Classifier(Model):
                         self.labels : batch[1],
                         self.weight_decay : weight_decay,
                         self.learn_rate : learn_rate,
+                        self.keep_prob : 1,
                         self.is_training : False}
             _, summary = self.sess.run([self.cost, self.merged], feed_dict=feedDict)
             self.test_writer.add_summary(summary, current_iter)
@@ -152,6 +147,7 @@ class Classifier(Model):
             batch = data_loader.train.next_batch(batch_size)
             feedDict[self.inputs] = batch[0]
             feedDict[self.labels] = batch[1]
+            feedDict[self.keep_prob] = keep_prob
             feedDict[self.is_training] = True
             _, summary = self.sess.run([self.train, self.merged], feed_dict=feedDict)
             self.train_writer.add_summary(summary, current_iter)
@@ -164,38 +160,40 @@ class Classifier(Model):
 
 
     # --------------------------------------------------------------------------
-    def train_step(self, inputs, labels, weight_decay, learn_rate):
+    def train_step(self, inputs, labels, weight_decay, learn_rate, keep_prob):
         feedDict = {self.inputs : inputs,
             self.labels : labels,
             self.weight_decay : weight_decay,
             self.learn_rate : learn_rate,
+            self.keep_prob : keep_prob,
             self.is_training : True}
         self.sess.run(self.train, feed_dict=feedDict)
 
 
     # --------------------------------------------------------------------------
-    def save_summaries(self, inputs, labels, weight_decay, is_training,
+    def save_summaries(self, inputs, labels, weight_decay, keep_prob, is_training,
         writer, it):
         feedDict = {self.inputs : inputs,
             self.labels : labels,
             self.weight_decay : weight_decay,
+            self.keep_prob : keep_prob,
             self.is_training : is_training}
         summary = self.sess.run(self.merged, feed_dict=feedDict)
         writer.add_summary(summary, it)
 
 
 
-def test_classifier():
-    from tensorflow.examples.tutorials.mnist import input_data
-    mnist = input_data.read_data_sets("MNIST_data/", one_hot=True)
-    ae = Classifier(input_dim=784, n_classes=10, do_train=True, scope='classifier')
-    # try:
-    #     ae.load_model(path='models/', sess=ae.sess)
-    # except FileNotFoundError:
-    #     pass
-    ae.train_(data_loader=mnist, batch_size=256, weight_decay=1e-2,
-        learn_rate_start=1e-2, learn_rate_end=1e-4, n_iter=1000,
-        save_model_every_n_iter=10000, path_to_model='models/cl')
+# def test_classifier():
+#     from tensorflow.examples.tutorials.mnist import input_data
+#     mnist = input_data.read_data_sets("MNIST_data/", one_hot=True)
+#     ae = Classifier(input_dim=784, n_classes=10, do_train=True, scope='classifier')
+#     # try:
+#     #     ae.load_model(path='models/', sess=ae.sess)
+#     # except FileNotFoundError:
+#     #     pass
+#     ae.train_(data_loader=mnist, batch_size=256, weight_decay=1e-2,
+#         learn_rate_start=1e-2, learn_rate_end=1e-4, n_iter=1000,
+#         save_model_every_n_iter=10000, path_to_model='models/cl')
 
 ################################################################################
 # TESTING

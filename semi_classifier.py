@@ -57,14 +57,13 @@ class SemiClassifier(Model):
 
             # train ext_classifier
             gan_images, gan_labels = self.gan.sample_data(batch_size)
-            images = np.vstack((gan_images, train_batch[0]))
-            labels = np.vstack((gan_labels, train_batch[1]))
-            self.ext_classifier.train_step(images, labels, weight_decay, learn_rate)
+            self.ext_classifier.train_step(gan_images, gan_labels, weight_decay, learn_rate,
+                keep_prob)
             if current_iter%200 == 0:
-                self.ext_classifier.save_summaries(images, labels, weight_decay, True,
-                    self.ext_classifier.train_writer, current_iter)
+                self.ext_classifier.save_summaries(gan_images, gan_labels, weight_decay,
+                    keep_prob, True, self.ext_classifier.train_writer, current_iter)
                 self.ext_classifier.save_summaries(test_batch[0], test_batch[1],
-                    weight_decay, False, self.ext_classifier.test_writer, current_iter)
+                    weight_decay, 1, False, self.ext_classifier.test_writer, current_iter)
 
             if (current_iter+1) % save_model_every_n_iter == 0:
                 self.gan.save_model(path=path_to_model_gan, sess=self.gan.sess,
