@@ -40,8 +40,8 @@ class Classifier(Model):
         self.inputs,\
         self.labels,\
         self.weight_decay,\
-        self.keep_prob,\
         self.learn_rate,\
+        self.keep_prob,\
         self.is_training = self.input_graph() # inputs shape is # b*n_f x h1 x c1
 
         self.logits = self.dense_block(inputs=self.inputs, structure=[512, 128,
@@ -64,7 +64,7 @@ class Classifier(Model):
 
         learn_rate = tf.placeholder(tf.float32, name='learn_rate')
 
-        keep_prob = tf.placeholder(tf.bool, name='keep_prob')
+        keep_prob = tf.placeholder(tf.float32, name='keep_prob')
 
         is_training = tf.placeholder(tf.bool, name='is_training')
 

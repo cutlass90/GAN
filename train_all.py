@@ -15,13 +15,13 @@ class ImageProvider:
         return self.mnist.train.next_batch(batch_size)[0]
 
 
-labeled_size = 1000
+labeled_size = 100
 batch_size = 100
 weight_decay = 2e-2
 n_iter = 200000
 learn_rate_start = 1e-3
 learn_rate_end = 1e-4
-keep_prob = 1
+keep_prob = 0.5
 save_model_every_n_iter = 35000
 path_to_model_gan = 'models/gan'
 path_to_model_ext_class = 'models/class'
