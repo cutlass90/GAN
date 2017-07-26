@@ -89,8 +89,9 @@ class Model(object):
             labels: 2D tensor with ground true data
             logits: 2D tensor
             
-            Return: 4-element tuple, where each element is a list, contained
-             metric for each class
+            Return: 4-element tuple,
+                where first 3 elementsis a list, contained precisseion, recall and f1
+             metric for each class and the last element is accuracy through all labels
             (precisseion, recall, f1, accuracy)
         """
         pred = tf.reduce_max(logits, axis=1)
@@ -109,9 +110,26 @@ class Model(object):
             precision.append(pr)
             recall.append(re)
             f1.append(2*pr*re/(pr+re+1e-5))
-            accuracy.append((tp+tn)/(tp+tn+fp+fn))
-
+        accuracy = tf.reduce_sum(labels*pred)/(tf.cast(tf.shape(labels)[0], dtype=tf.float32))
         return (precision, recall, f1, accuracy)
             
 
 # test
+
+# test get_metrics
+"""
+from sklearn.metrics import precision_recall_fscore_support, accuracy_score
+sess = tf.InteractiveSession()
+labels = tf.constant([[1, 0,  0], [0, 1, 0], [0,  0, 1]], dtype=tf.float32)
+logits = tf.constant([[1,-7, -5], [7,-1, 4], [-2, 2, 0]], dtype=tf.float32)
+y_pred = np.array(   [[1, 0,  0], [1, 0, 0], [0,  1, 0]])
+y_true = np.array(   [[1, 0,  0], [0, 1, 0], [0,  0, 1]])
+precision, recall, f1, accuracy = get_metrics(labels, logits)
+precision_, recall_, f1_, accuracy_ = sess.run([precision, recall, f1, accuracy])
+
+precision_t, recall_t, f1_t, _ = precision_recall_fscore_support(y_true, y_pred)
+accuracy_t =  accuracy_score(y_true, y_pred)
+
+print('True metrics ', precision_t, recall_t, f1_t, accuracy_t)
+print('Predicted metrics ', precision_, recall_, f1_, accuracy_)
+"""

@@ -43,9 +43,15 @@ image_provider = ImageProvider()
 ext_classifier = Classifier(input_dim=784, n_classes=10, do_train=True,
     scope='ext_classifier')
 gan = GAN(do_train=True, input_dim=784, n_classes=10, z_dim=20, scope='GAN')
+# ext_classifier.load_model('models/class-75000', ext_classifier.sess)
+# gan.load_model('models/gan-75000', gan.sess)
 semi_classifier = SemiClassifier(gan, ext_classifier, do_train=True)
+
 semi_classifier.train_model(image_provider, labeled_data_loader, test_data_loader,
     batch_size, weight_decay, n_iter, learn_rate_start, learn_rate_end, keep_prob,
     save_model_every_n_iter, path_to_model_gan, path_to_model_ext_class)
 
+
+# z = np.random.normal(size=[batch_size, gan.z_dim])
+# print(gan.sess.run(gan.logits_gen, {gan.is_training:False, gan.z:z}))
 

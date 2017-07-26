@@ -173,8 +173,7 @@ class GAN(Model):
             precision, recall, f1, accuracy = self.get_metrics(labels, logits_class_r)
             for i in range(self.n_classes):
                 self.class_sum.append(tf.summary.scalar('Class {} f1 score'.format(i), f1[i]))
-            self.class_sum.append(tf.summary.scalar('Accuracy',
-                tf.add_n(accuracy)/self.n_classes))
+            self.class_sum.append(tf.summary.scalar('Accuracy', accuracy))
 
         return loss_class_r
 
@@ -201,8 +200,8 @@ class GAN(Model):
             labels=ones, logits=logits_critic_f))
 
         # Distribution loss
-        class_distrib = tf.reduce_mean(tf.nn.softmax(logits_class_f),0) # 10
-        # class_distrib = tf.Print(class_distrib, [class_distrib], summarize=100)
+        class_distrib = tf.reduce_mean(tf.nn.softmax(logits_gen),0) # 10
+        # class_distrib = tf.Print(class_distrib, [labels[0,:]], summarize=100)
         target_distrib=tf.constant(value=1./self.n_classes, shape=[self.n_classes],
                 dtype=tf.float32)
         loss_distrib = -10*tf.reduce_sum(target_distrib*tf.log(class_distrib+1e-6))
@@ -223,8 +222,7 @@ class GAN(Model):
             precision, recall, f1, accuracy = self.get_metrics(labels, logits_gen)
             for i in range(self.n_classes):
                 self.gen_sum.append(tf.summary.scalar('Class {} f1 score'.format(i), f1[i]))
-            self.gen_sum.append(tf.summary.scalar('Accuracy',
-                tf.add_n(accuracy)/self.n_classes))
+            self.gen_sum.append(tf.summary.scalar('Accuracy', accuracy))
         return cost
 
 

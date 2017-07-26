@@ -104,8 +104,7 @@ class Classifier(Model):
             precision, recall, f1, accuracy = self.get_metrics(labels, logits)
             for i in range(self.n_classes):
                 self.summary.append(tf.summary.scalar('Class {} f1 score'.format(i), f1[i]))
-            self.summary.append(tf.summary.scalar('Accuracy',
-                tf.add_n(accuracy)/self.n_classes))
+            self.summary.append(tf.summary.scalar('Accuracy', accuracy))
 
 
     # --------------------------------------------------------------------------
