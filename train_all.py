@@ -15,7 +15,7 @@ class ImageProvider:
         return self.mnist.train.next_batch(batch_size)[0]
 
 
-labeled_size = 100
+labeled_size = 1000
 batch_size = 100
 weight_decay = 2e-2
 n_iter = 200000
