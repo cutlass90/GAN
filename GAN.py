@@ -23,6 +23,7 @@ class GAN(Model):
         self.disc_sum, self.gen_sum, self.class_sum = [], [], []
         self.graph = tf.Graph()
         with self.graph.as_default():
+            tf.set_random_seed(1)
             with tf.variable_scope(scope):
                 self.create_graph()
             # [print(i) for i in tf.trainable_variables()]
@@ -226,11 +227,11 @@ class GAN(Model):
             labels=ones, logits=logits_critic_f))
 
         # Distribution loss
-        class_distrib = tf.reduce_mean(tf.nn.softmax(logits_gen),0) # 10
+        class_distrib = tf.reduce_mean(tf.nn.softmax(logits_gen/0.1),0) # 10
         # class_distrib = tf.Print(class_distrib, [labels[0,:]], summarize=100)
         target_distrib=tf.constant(value=1./self.n_classes, shape=[self.n_classes],
                 dtype=tf.float32)
-        loss_distrib = -10*tf.reduce_sum(target_distrib*tf.log(class_distrib+1e-6))
+        loss_distrib = -tf.reduce_sum(target_distrib*tf.log(class_distrib+1e-6))
             
         cost = loss_critic_f + loss_class_f + loss_distrib
 

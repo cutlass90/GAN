@@ -18,13 +18,14 @@ class Classifier(Model):
         self.summary = []
         self.graph = tf.Graph()
         with self.graph.as_default():
+            tf.set_random_seed(1)
             with tf.variable_scope(scope):
                 self.create_graph()
             if do_train:
                 self.cost = self.create_cost_graph(self.labels, self.logits)
                 self.create_summary(self.labels, self.logits)
                 self.train = self.create_optimizer_graph(self.cost)
-                self.train_writer, self.test_writer = self.create_summary_writers('summary/class')
+                self.train_writer, self.test_writer = self.create_summary_writers('summary/pure_class')
                 self.merged = tf.summary.merge(self.summary)
 
             self.sess = self.create_session()
@@ -117,12 +118,8 @@ class Classifier(Model):
 
 
     # --------------------------------------------------------------------------
-    def train_(self, data_loader, batch_size, weight_decay,  learn_rate_start,
-        learn_rate_end, kepp_prob, n_iter, save_model_every_n_iter, path_to_model):
-        """
-        Args:
-            noise_range: list, first item - std_start, second item - std_end
-        """
+    def train_model(self, data_loader, batch_size, weight_decay,  learn_rate_start,
+        learn_rate_end, keep_prob, n_iter, save_model_every_n_iter, path_to_model):
         print('\n\t----==== Training ====----')
             
         start_time = time.time()
@@ -130,33 +127,22 @@ class Classifier(Model):
             learn_rate = self.scaled_exp_decay(learn_rate_start, learn_rate_end,
                 n_iter, current_iter)
 
-            #evaluate
-            batch = data_loader.test.next_batch(batch_size)
-            feedDict = {self.inputs : batch[0],
-                        self.labels : batch[1],
-                        self.weight_decay : weight_decay,
-                        self.learn_rate : learn_rate,
-                        self.keep_prob : 1,
-                        self.is_training : False}
-            _, summary = self.sess.run([self.cost, self.merged], feed_dict=feedDict)
-            self.test_writer.add_summary(summary, current_iter)
 
-
-            #train
-            batch = data_loader.train.next_batch(batch_size)
-            feedDict[self.inputs] = batch[0]
-            feedDict[self.labels] = batch[1]
-            feedDict[self.keep_prob] = keep_prob
-            feedDict[self.is_training] = True
-            _, summary = self.sess.run([self.train, self.merged], feed_dict=feedDict)
-            self.train_writer.add_summary(summary, current_iter)
+            train_batch = data_loader.validation.next_batch(batch_size)
+            test_batch = data_loader.test.next_batch(batch_size)
+            self.train_step(train_batch[0], train_batch[1], weight_decay, learn_rate,
+                keep_prob)
+            if current_iter%200 == 0:
+                self.save_summaries(train_batch[0], train_batch[1], weight_decay,
+                    keep_prob, True, self.train_writer, current_iter)
+                self.save_summaries(test_batch[0], test_batch[1],
+                    weight_decay, 1, False, self.test_writer, current_iter)
 
             if (current_iter+1) % save_model_every_n_iter == 0:
                 self.save_model(path=path_to_model, sess=self.sess, step=current_iter+1)
         self.save_model(path=path_to_model, sess=self.sess, step=current_iter+1)
         print('\nTrain finished!')
         print("Training time --- %s seconds ---" % (time.time() - start_time))
-
 
     # --------------------------------------------------------------------------
     def train_step(self, inputs, labels, weight_decay, learn_rate, keep_prob):
@@ -182,17 +168,14 @@ class Classifier(Model):
 
 
 
-# def test_classifier():
-#     from tensorflow.examples.tutorials.mnist import input_data
-#     mnist = input_data.read_data_sets("MNIST_data/", one_hot=True)
-#     ae = Classifier(input_dim=784, n_classes=10, do_train=True, scope='classifier')
-#     # try:
-#     #     ae.load_model(path='models/', sess=ae.sess)
-#     # except FileNotFoundError:
-#     #     pass
-#     ae.train_(data_loader=mnist, batch_size=256, weight_decay=1e-2,
-#         learn_rate_start=1e-2, learn_rate_end=1e-4, n_iter=1000,
-#         save_model_every_n_iter=10000, path_to_model='models/cl')
+def test_classifier():
+    from tensorflow.examples.tutorials.mnist import input_data
+    mnist = input_data.read_data_sets("MNIST_data/", one_hot=True,
+        validation_size=100)
+    cl = Classifier(input_dim=784, n_classes=10, do_train=True, scope='classifier')
+    cl.train_model(data_loader=mnist, batch_size=100, weight_decay=2e-2,
+        learn_rate_start=1e-3, learn_rate_end=1e-4, keep_prob=0.5, n_iter=200000,
+        save_model_every_n_iter=350000, path_to_model='models/cl')
 
 ################################################################################
 # TESTING
