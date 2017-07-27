@@ -64,15 +64,31 @@ class GAN(Model):
         self.gen_pred = tf.reduce_max(self.logits_gen, axis=1)
         self.gen_pred = tf.cast(tf.equal(self.logits_gen, tf.expand_dims(self.gen_pred, 1)), tf.float32)
 
-        self.logits_critic_r = self.discriminator(self.inputs, structure=[256, 256, 1],
-            reuse=False) # b x 1
-        self.logits_critic_f = self.discriminator(self.x_fake, structure=[256, 256, 1],
-            reuse=True) # b x 1
+        with tf.variable_scope('discriminator'):
+            dense_r = self.dense(self.inputs, structure=[256, 256], reuse=False) # b x 1
+            dense_f = self.dense(self.x_fake, structure=[256, 256], reuse=True) # b x 1
+            self.logits_critic_r = tf.layers.dense(inputs=dense_r, units=1,
+                activation=None, kernel_initializer=tf.contrib.layers.xavier_initializer(),
+                reuse=False, name='logits_critic')# b x 1
+            self.logits_critic_f = tf.layers.dense(inputs=dense_f, units=1,
+                activation=None, kernel_initializer=tf.contrib.layers.xavier_initializer(),
+                reuse=True, name='logits_critic')# b x 1
+            self.logits_class_r = tf.layers.dense(inputs=dense_r, units=self.n_classes,
+                activation=None, kernel_initializer=tf.contrib.layers.xavier_initializer(),
+                reuse=False, name='logits_class')# b x 10
+            self.logits_class_f = tf.layers.dense(inputs=dense_f, units=self.n_classes,
+                activation=None, kernel_initializer=tf.contrib.layers.xavier_initializer(),
+                reuse=True, name='logits_class')# b x 10
 
-        self.logits_class_r = self.classifier(self.inputs,
-            structure=[256, 256, self.n_classes], reuse=False) # b x 10
-        self.logits_class_f = self.classifier(self.x_fake,
-            structure=[256, 256, self.n_classes], reuse=True) # b x 10
+        # self.logits_critic_r = self.discriminator(self.inputs, structure=[256, 256, 1],
+        #     reuse=False) # b x 1
+        # self.logits_critic_f = self.discriminator(self.x_fake, structure=[256, 256, 1],
+        #     reuse=True) # b x 1
+
+        # self.logits_class_r = self.classifier(self.inputs,
+        #     structure=[256, 256, self.n_classes], reuse=False) # b x 10
+        # self.logits_class_f = self.classifier(self.x_fake,
+        #     structure=[256, 256, self.n_classes], reuse=True) # b x 10
 
         print('Done!')
 
@@ -110,37 +126,47 @@ class GAN(Model):
 
 
     # --------------------------------------------------------------------------
-    def discriminator(self, x, structure, reuse):
+    def dense(self, inputs, structure, reuse):
         print('\tdiscriminator')
-        with tf.variable_scope('discriminator'):
-            for i, layer in enumerate(structure[:-1]):
-                x = tf.layers.dense(inputs=x, units=layer, activation=None,
-                    kernel_initializer=tf.contrib.layers.xavier_initializer(),
-                    reuse=reuse, name='disc'+str(i))
-                # x = tf.contrib.layers.batch_norm(inputs=x, scale=True,
-                #     updates_collections=None, is_training=self.is_training)
-                x = tf.nn.elu(x)
-            x = tf.layers.dense(inputs=x, units=structure[-1], activation=None,
+        for i, layer in enumerate(structure):
+            inputs = tf.layers.dense(inputs=inputs, units=layer, activation=tf.nn.elu,
                 kernel_initializer=tf.contrib.layers.xavier_initializer(),
-                reuse=reuse, name='disc_last')
-        return x
+                reuse=reuse, name='dense'+str(i))
+        return inputs
 
 
     # --------------------------------------------------------------------------
-    def classifier(self, x, structure, reuse):
-        print('\tclassifier')
-        with tf.variable_scope('classifier'):
-            for i, layer in enumerate(structure[:-1]):
-                x = tf.layers.dense(inputs=x, units=layer, activation=None,
-                    kernel_initializer=tf.contrib.layers.xavier_initializer(),
-                    reuse=reuse, name='class'+str(i))
-                # x = tf.contrib.layers.batch_norm(inputs=x, scale=True,
-                #     updates_collections=None, is_training=self.is_training)
-                x = tf.nn.elu(x)
-            x = tf.layers.dense(inputs=x, units=structure[-1], activation=None,
-                kernel_initializer=tf.contrib.layers.xavier_initializer(),
-                reuse=reuse, name='class_last')
-        return x
+    # def discriminator(self, x, structure, reuse):
+    #     print('\tdiscriminator')
+    #     with tf.variable_scope('discriminator'):
+    #         for i, layer in enumerate(structure[:-1]):
+    #             x = tf.layers.dense(inputs=x, units=layer, activation=None,
+    #                 kernel_initializer=tf.contrib.layers.xavier_initializer(),
+    #                 reuse=reuse, name='disc'+str(i))
+    #             # x = tf.contrib.layers.batch_norm(inputs=x, scale=True,
+    #             #     updates_collections=None, is_training=self.is_training)
+    #             x = tf.nn.elu(x)
+    #         x = tf.layers.dense(inputs=x, units=structure[-1], activation=None,
+    #             kernel_initializer=tf.contrib.layers.xavier_initializer(),
+    #             reuse=reuse, name='disc_last')
+    #     return x
+
+
+    # --------------------------------------------------------------------------
+    # def classifier(self, x, structure, reuse):
+    #     print('\tclassifier')
+    #     with tf.variable_scope('classifier'):
+    #         for i, layer in enumerate(structure[:-1]):
+    #             x = tf.layers.dense(inputs=x, units=layer, activation=None,
+    #                 kernel_initializer=tf.contrib.layers.xavier_initializer(),
+    #                 reuse=reuse, name='class'+str(i))
+    #             # x = tf.contrib.layers.batch_norm(inputs=x, scale=True,
+    #             #     updates_collections=None, is_training=self.is_training)
+    #             x = tf.nn.elu(x)
+    #         x = tf.layers.dense(inputs=x, units=structure[-1], activation=None,
+    #             kernel_initializer=tf.contrib.layers.xavier_initializer(),
+    #             reuse=reuse, name='class_last')
+    #     return x
 
 
     # --------------------------------------------------------------------------
@@ -190,7 +216,7 @@ class GAN(Model):
         print('get_generator_cost')
 
         # classification loss
-        labels = tf.nn.softmax(logits_class_f)
+        labels = tf.nn.softmax(logits_class_f/20)
         loss_class_f = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(
             labels=labels, logits=logits_gen))
 
@@ -251,7 +277,7 @@ class GAN(Model):
             class_optimizer = tf.train.AdamOptimizer(self.learn_rate)
             train_class = class_optimizer.minimize(class_cost,
                 var_list=tf.get_collection('trainable_variables',
-                    scope=self.scope+'/classifier'))
+                    scope=self.scope+'/discriminator'))
         return train_disc, train_gen, train_class
 
 
