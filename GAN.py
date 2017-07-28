@@ -227,7 +227,7 @@ class GAN(Model):
             labels=ones, logits=logits_critic_f))
 
         # Distribution loss
-        class_distrib = tf.reduce_mean(tf.nn.softmax(logits_gen/0.1),0) # 10
+        class_distrib = tf.reduce_mean(tf.nn.softmax(logits_gen/0.01),0) # 10
         # class_distrib = tf.Print(class_distrib, [labels[0,:]], summarize=100)
         target_distrib=tf.constant(value=1./self.n_classes, shape=[self.n_classes],
                 dtype=tf.float32)

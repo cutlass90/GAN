@@ -25,7 +25,7 @@ class Classifier(Model):
                 self.cost = self.create_cost_graph(self.labels, self.logits)
                 self.create_summary(self.labels, self.logits)
                 self.train = self.create_optimizer_graph(self.cost)
-                self.train_writer, self.test_writer = self.create_summary_writers('summary/pure_class')
+                self.train_writer, self.test_writer = self.create_summary_writers('summary/class')
                 self.merged = tf.summary.merge(self.summary)
 
             self.sess = self.create_session()
